@@ -42,12 +42,20 @@ sin declarar variantes por contexto.
 | `--op-edge-lit` | El canto superior iluminado de una hoja |
 | `--op-sheet` | El contorno de hoja completo: canto + hairline perimetral |
 
-**La regla de las hojas:** `backdrop-filter` va SOLO en lo que flota directo
-sobre la niebla o sobre contenido — el shell y los overlays ya lo llevan, y una
-card suelta puede pedirlo con `.op-card--glass`. Lo que vive *adentro* de una
+**La regla de las hojas:** `backdrop-filter` va SOLO donde puede muestrear —
+el shell, los overlays (portaleados a `#op-layer`), y hojas directas de la
+vista **fuera del scroller** (`.op-card--glass`). Lo que vive *adentro* de una
 hoja es relleno translúcido sin blur: desenfocar lo ya desenfocado cuesta GPU y
 no se ve. Y el blur **no se anima nunca** — todo entra y sale por `opacity` y
 `transform`, con el blur ya puesto.
+
+**La frontera de backdrop** (dos veces cazada a píxel): un ancestro con máscara
+(el esfumado de `.op-scroll`) o con una animación de opacidad retenida deja al
+vidrio interno CIEGO — el blur computa pero no muestrea, y lo de abajo se lee
+nítido a través. `isolation: isolate` NO lo arregla. El router ya suelta
+`.op-view` al terminar; para vidrio adentro de un scroller, el truco del
+espejo: una copia del contenido esmerilada con `filter` y alineada por JS —
+la vitrina lo muestra hecho.
 
 La receta de una hoja nueva: `background: var(--op-s2)` +
 `box-shadow: var(--op-sheet), var(--op-e2)` + radio `--op-r-lg`. Si además

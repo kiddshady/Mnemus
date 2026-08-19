@@ -11,7 +11,7 @@
 import { Icons } from './icons.js';
 import { Toast, Menu, Modal } from './overlays.js';
 import Palette from './palette.js';
-import { bindSwitcher, bindStepper } from './motion.js';
+import { bindSwitcher, bindStepper, raf2 } from './motion.js';
 import { mark, status, copy, colorToken } from './ui.js';
 
 /* ── Las tres perillas ───────────────────────────────────────────────────────
@@ -105,9 +105,17 @@ export function designHTML() {
         </div>
 
         <!-- El vidrio en vivo: contenido con color atrás, una hoja adelante.
-             La perilla Desenfoque de arriba mueve ESTE blur en tiempo real. -->
-        <div style="position:relative;border-radius:var(--op-r-lg);overflow:hidden;min-height:180px;margin-top:14px;box-shadow:var(--op-hairline)">
-          <div style="position:absolute;inset:0;padding:18px 20px;background:
+             La perilla Desenfoque de arriba mueve ESTE blur en tiempo real.
+
+             OJO: esta hoja NO usa backdrop-filter, y eso es la lección. Estamos
+             ADENTRO de un .op-scroll con esfumado: su máscara es frontera de
+             backdrop y un backdrop-filter acá queda CIEGO — computa el blur y
+             no muestrea nada (el texto de abajo se leería nítido a través).
+             La hoja usa el ESPEJO: una copia del fondo esmerilada con filter,
+             alineada por JS en wireDesign(). Idéntica a la vista, inmune a la
+             frontera. -->
+        <div id="glass-demo" style="position:relative;border-radius:var(--op-r-lg);overflow:hidden;min-height:180px;margin-top:14px;box-shadow:var(--op-hairline)">
+          <div id="glass-fondo" style="position:absolute;inset:0;padding:18px 20px;background:
               radial-gradient(60% 90% at 12% 8%, rgb(255 255 255 / .10), transparent 60%),
               radial-gradient(50% 80% at 88% 92%, rgb(255 255 255 / .07), transparent 60%)">
             <div class="op-row" style="gap:8px;margin-bottom:12px">
@@ -121,23 +129,32 @@ export function designHTML() {
               Lo que pasa debajo de una hoja no desaparece: se vuelve profundidad. El
               <span class="op-mono">saturate(135%)</span> del vidrio es lo que hace que este texto y esos
               puntos de color atraviesen el desenfoque como luz y no como una mancha gris.
-              Sin niebla y sin contenido, un backdrop-filter no tiene nada que hacer.
+              Sin niebla y sin contenido, el vidrio no tiene nada que hacer.
             </div>
           </div>
-          <div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);width:min(56%,300px);padding:16px 18px;border-radius:var(--op-r-lg);background:var(--op-s3);backdrop-filter:var(--op-glass);box-shadow:var(--op-sheet),var(--op-e3)">
-            <div class="op-subtitle">Una hoja de vidrio</div>
-            <div class="op-meta" style="margin-top:6px;line-height:1.65">
-              Relleno <span class="op-mono">--op-s3</span> + canto <span class="op-mono">--op-sheet</span> +
-              sombra <span class="op-mono">--op-e3</span>, y el blur revelando lo de abajo.
-              Mové la perilla <b>Desenfoque</b> y mirá.
+          <div id="glass-hoja" style="position:absolute;right:20px;top:50%;transform:translateY(-50%);width:min(56%,300px);border-radius:var(--op-r-lg);overflow:hidden;box-shadow:var(--op-sheet),var(--op-e3)">
+            <!-- El espejo es OPACO a propósito: un backdrop de verdad REEMPLAZA
+                 lo de abajo por su versión esmerilada; una copia con fondo
+                 transparente solo suma borrón encima y el original se sigue
+                 leyendo nítido a través. La base opaca ocluye, la copia pinta. -->
+            <div id="glass-espejo" style="position:absolute;inset:0;background:var(--op-bg)" aria-hidden="true"></div>
+            <div style="position:relative;padding:16px 18px;background:var(--op-s3)">
+              <div class="op-subtitle">Una hoja de vidrio</div>
+              <div class="op-meta" style="margin-top:6px;line-height:1.65">
+                Relleno <span class="op-mono">--op-s3</span> + canto <span class="op-mono">--op-sheet</span> +
+                sombra <span class="op-mono">--op-e3</span>, y el desenfoque revelando lo de abajo.
+                Mové la perilla <b>Desenfoque</b> y mirá.
+              </div>
             </div>
           </div>
         </div>
         <p class="op-meta op-copyable" style="max-width:640px;line-height:1.65;margin-top:14px">
-          LA REGLA DE LAS HOJAS: <span class="op-mono">backdrop-filter</span> va solo en lo que flota
-          directo sobre la niebla o sobre contenido — el shell y los overlays ya lo llevan, y una card
-          suelta puede pedirlo con <span class="op-mono">.op-card--glass</span>. Lo que vive ADENTRO de
-          una hoja es relleno translúcido sin blur: desenfocar lo ya desenfocado cuesta GPU y no se ve.
+          LA REGLA DE LAS HOJAS: <span class="op-mono">backdrop-filter</span> va solo donde puede
+          muestrear — el shell, los overlays, y hojas directas de la vista FUERA del scroller
+          (<span class="op-mono">.op-card--glass</span>). ADENTRO de un <span class="op-mono">.op-scroll</span>
+          con esfumado el vidrio queda ciego: la máscara es frontera de backdrop. Ahí va el truco del
+          espejo (como esta hoja) o directamente no va vidrio. Y lo que vive adentro de una hoja es
+          relleno translúcido sin blur: desenfocar lo ya desenfocado cuesta GPU y no se ve.
         </p>
 
         <!-- LAS DOS FORMAS DE LA TARJETA, y están las dos a propósito.
@@ -515,6 +532,41 @@ export function wireDesign(rootEl) {
     applyBlur();
     applyFog();
   });
+
+  /* El espejo de la demo de vidrio: una copia del fondo, esmerilada con
+     filter (que no depende del backdrop) y alineada con lo que hay debajo.
+     Existe porque acá adentro —un .op-scroll con esfumado— un backdrop-filter
+     de verdad queda ciego: la máscara del scroller es frontera de backdrop.
+     La copia mide lo que el demo y se corre en negativo hasta coincidir. */
+  const demo = rootEl.querySelector('#glass-demo');
+  const hoja = rootEl.querySelector('#glass-hoja');
+  const espejoHost = rootEl.querySelector('#glass-espejo');
+  const fondo = rootEl.querySelector('#glass-fondo');
+  if (demo && hoja && espejoHost && fondo) {
+    const copia = fondo.cloneNode(true);
+    copia.removeAttribute('id');
+    copia.style.position = 'absolute';
+    copia.style.inset = 'auto';
+    copia.style.pointerEvents = 'none';
+    copia.style.userSelect = 'none';
+    copia.style.filter = 'var(--op-glass)';   // mismas perillas que el vidrio real
+    espejoHost.appendChild(copia);
+
+    const alinear = () => {
+      const rd = demo.getBoundingClientRect();
+      const rh = hoja.getBoundingClientRect();
+      copia.style.width = `${rd.width}px`;
+      copia.style.height = `${rd.height}px`;
+      copia.style.left = `${rd.left - rh.left}px`;
+      copia.style.top = `${rd.top - rh.top}px`;
+    };
+    raf2(alinear);
+    // La hoja también: si su texto re-fluye cambia de alto, y el translateY(-50%)
+    // la mueve — el espejo tiene que seguirla.
+    const ro = new ResizeObserver(alinear);
+    ro.observe(demo);
+    ro.observe(hoja);
+  }
 
   /* Controles */
   rootEl.querySelectorAll('[data-toggle]').forEach((b) =>

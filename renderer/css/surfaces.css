@@ -133,9 +133,15 @@
 .op-card--interactive:active { transform: translateY(0) scale(.995); }
 
 /* Vidrio de verdad, SOLO para hojas que flotan directo sobre la niebla (una
-   card suelta en la vista, un panel hero). No lo anides adentro de otra hoja
-   con blur — el shell y los overlays ya lo llevan — porque desenfocar lo ya
-   desenfocado cuesta GPU y no cambia un píxel. */
+   card suelta en la vista, un panel hero). Dos prohibiciones, las dos caras
+   de la misma regla:
+   · No lo anides adentro de otra hoja con blur — desenfocar lo desenfocado
+     cuesta GPU y no cambia un píxel.
+   · No lo metas ADENTRO de un .op-scroll con esfumado: la máscara del
+     scroller es frontera de backdrop y el vidrio queda CIEGO — computa el
+     blur pero no muestrea nada, y lo de abajo se lee nítido a través. Si
+     necesitás vidrio ahí, el truco del espejo (ver la vitrina) o afuera
+     del scroller. */
 .op-card--glass {
   backdrop-filter: var(--op-glass);
 }

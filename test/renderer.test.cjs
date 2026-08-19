@@ -388,6 +388,38 @@ app.whenReady().then(async () => {
   await js(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); true`);
   await sleep(400);
 
+  /* La demo de la vitrina vive ADENTRO del scroller, donde el backdrop queda
+     ciego (la máscara del esfumado es frontera): tiene que usar el ESPEJO —
+     copia del fondo con filter, alineada al píxel — y no backdrop-filter. */
+  const espejo = await js(`(() => {
+    const demo = document.getElementById('glass-demo');
+    const hoja = document.getElementById('glass-hoja');
+    const copia = document.querySelector('#glass-espejo > div');
+    if (!demo || !hoja || !copia) return null;
+    const rd = demo.getBoundingClientRect(); const rc = copia.getBoundingClientRect();
+    return {
+      filtro: getComputedStyle(copia).filter,
+      alineada: Math.abs(rc.left - rd.left) < 1.5 && Math.abs(rc.top - rd.top) < 1.5
+             && Math.abs(rc.width - rd.width) < 1.5 && Math.abs(rc.height - rd.height) < 1.5,
+      sinBackdrop: getComputedStyle(hoja).backdropFilter === 'none',
+    };
+  })()`);
+  ok('la demo usa el espejo (filter con blur en la copia)', /blur\(/.test(espejo?.filtro || ''), JSON.stringify(espejo));
+  ok('la copia queda alineada con el fondo', espejo?.alineada === true, JSON.stringify(espejo));
+  ok('y la hoja no intenta backdrop adentro del scroller', espejo?.sinBackdrop === true);
+  /* Sin base opaca, el espejo solo SUMA borrón y el texto real de abajo se
+     sigue leyendo nítido a través del relleno translúcido: la oclusión es
+     parte del truco, no un detalle. */
+  const espejoOpaco = await js(`(() => {
+    const host = document.getElementById('glass-espejo');
+    if (!host) return null;
+    const c = getComputedStyle(host).backgroundColor;
+    const m = c.match(/rgba?\\(([^)]+)\\)/);
+    const alfa = m && m[1].split(',').length === 4 ? parseFloat(m[1].split(',')[3]) : 1;
+    return { color: c, alfa };
+  })()`);
+  ok('y el espejo es opaco (ocluye el original)', espejoOpaco && espejoOpaco.alfa >= 0.99, JSON.stringify(espejoOpaco));
+
   console.log('\n9. Las reglas de oro');
   const glifos = await js(`(() => {
     const malo = /[\\u2190-\\u21FF\\u2300-\\u23FF\\u25A0-\\u27BF\\u2B00-\\u2BFF\\uFE0F\\u{1F300}-\\u{1FAFF}]/u;
