@@ -45,13 +45,26 @@ Para sacar una versión:
 
 ```
 npm version patch                    # sube el número y deja el tag
+git push --follow-tags
+gh release create v0.1.1 --draft --title "Mnemus 0.1.1" --notes "…"
 $env:GH_TOKEN = (gh auth token)      # electron-builder publica con este token
 npm run release                      # construye y sube el instalador + latest.yml
-git push --follow-tags
+gh release edit v0.1.1 --draft=false
 ```
 
-El `latest.yml` que sube `electron-builder` es lo que el updater lee para saber
-que hay algo nuevo: un release sin ese archivo es invisible para la app.
+**El release se crea a mano ANTES de `npm run release`, y no es un capricho.**
+`electron-builder` sube el `.exe` y el `.blockmap` en paralelo, y si el release
+todavía no existe los dos hilos lo crean: quedan **dos drafts con el mismo tag**
+y los archivos repartidos entre ambos, con lo cual ninguno sirve. Con el draft ya
+creado, los dos hilos lo encuentran y suben ahí.
+
+El `latest.yml` es lo que el updater lee para saber que hay algo nuevo: un release
+sin ese archivo es invisible para la app. Después de publicar conviene confirmarlo
+como lo va a ver la app, sin credenciales:
+
+```
+curl -sL https://github.com/kiddshady/Mnemus/releases/latest/download/latest.yml
+```
 
 > **Sin firma de código.** Los instaladores no están firmados, así que Windows
 > SmartScreen advierte la primera vez ("Más información" → "Ejecutar de todas
