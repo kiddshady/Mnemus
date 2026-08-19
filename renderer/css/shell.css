@@ -204,11 +204,21 @@
 .op-navitem:hover .op-navitem__count,
 .op-navitem.is-active .op-navitem__count { color: var(--op-text-2); }
 
-/* Pie del rail: salud de proveedores. */
+/* Pie del rail: salud de proveedores, la ruta de datos, lo chiquito. */
 .op-rail__foot {
   padding: var(--op-3);
   box-shadow: inset 0 1px 0 var(--op-line);
+  /* Flex, y no por estética: blockifica a los hijos. Un span inline con
+     .op-truncate no trunca NUNCA — text-overflow pide caja de bloque — y el
+     síntoma recién aparece cuando algo largo llega acá: la ruta de userData
+     de la app instalada lo destapó, desbordando el rail sin puntos
+     suspensivos. El min-width:0 es la otra mitad: sin él, el hijo flex se
+     niega a achicarse por debajo de su contenido. */
+  display: flex;
+  align-items: center;
+  gap: var(--op-2);
 }
+.op-rail__foot > * { min-width: 0; }
 
 /* ── Área principal ───────────────────────────────────────────────────────────
    Transparente: la vista flota directo sobre la niebla. Por eso una card acá

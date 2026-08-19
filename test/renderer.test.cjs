@@ -420,6 +420,48 @@ app.whenReady().then(async () => {
   })()`);
   ok('y el espejo es opaco (ocluye el original)', espejoOpaco && espejoOpaco.alfa >= 0.99, JSON.stringify(espejoOpaco));
 
+  /* ── Rutas largas: el pie del rail trunca y el tooltip contiene ────────────
+     El bug real: en dev la ruta de datos es corta y todo parece andar; la app
+     INSTALADA llega con C:\Users\...\Roaming\Mnemus\data y el span inline no
+     trunca (text-overflow pide caja de bloque) mientras el tooltip desborda
+     su burbuja (una cadena sin espacios no envuelve sin overflow-wrap). Se
+     inyecta una ruta larga y se miden CAJAS, no clases. */
+  console.log('\n8-sexies. Rutas largas: el pie trunca y el tooltip contiene');
+  const rutas = await js(`(async () => {
+    const foot = document.getElementById('rail-foot');
+    const original = foot.innerHTML;
+    const ruta = ['C:', 'Users', 'usuario', 'AppData', 'Roaming', 'UnaAppDeNombreLargo', 'data'].join('\\\\');
+    foot.innerHTML = '<span class="op-meta op-truncate"></span>';
+    const el = foot.firstElementChild;
+    el.dataset.tip = ruta;
+    el.textContent = ruta;
+    const r = {
+      truncado: el.scrollWidth > el.clientWidth + 1,
+      elipsis: getComputedStyle(el).textOverflow === 'ellipsis',
+      contenido: el.getBoundingClientRect().right <= foot.getBoundingClientRect().right + 1,
+    };
+    el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    await new Promise((res) => setTimeout(res, 700));
+    const tip = document.querySelector('.op-tooltip');
+    if (tip) {
+      const rt = tip.getBoundingClientRect();
+      const ra = el.getBoundingClientRect();
+      r.tip = {
+        dentroDeSi: tip.scrollWidth <= tip.clientWidth + 1 && tip.scrollHeight <= tip.clientHeight + 1,
+        centradoOClampeado: Math.abs((rt.left + rt.right) / 2 - (ra.left + ra.right) / 2) < 12 || rt.left <= 12,
+        enVentana: rt.left >= 0 && rt.right <= window.innerWidth,
+      };
+    }
+    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    foot.innerHTML = original;
+    return r;
+  })()`);
+  ok('la ruta larga trunca con elipsis', rutas.truncado && rutas.elipsis, JSON.stringify(rutas));
+  ok('y no desborda el rail', rutas.contenido === true);
+  ok('el tooltip contiene su texto (nada cuelga afuera del vidrio)', rutas.tip?.dentroDeSi === true, JSON.stringify(rutas.tip));
+  ok('y queda centrado sobre el ancla (o clampeado al borde) y en ventana',
+    rutas.tip?.centradoOClampeado === true && rutas.tip?.enVentana === true, JSON.stringify(rutas.tip));
+
   console.log('\n9. Las reglas de oro');
   const glifos = await js(`(() => {
     const malo = /[\\u2190-\\u21FF\\u2300-\\u23FF\\u25A0-\\u27BF\\u2B00-\\u2BFF\\uFE0F\\u{1F300}-\\u{1FAFF}]/u;

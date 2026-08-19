@@ -30,6 +30,13 @@
   color: var(--op-text);
   font-size: var(--op-fs-11);
   line-height: 1.45;
+  /* Centrado y a prueba de rutas: la caja ya se centra sobre su ancla
+     (tooltip.js), el texto acompaña. Y una cadena sin espacios —
+     C:\...\Roaming\App\data — no tiene dónde partirse: sin `anywhere`
+     desborda la burbuja en vez de envolver, y el tooltip sale con el
+     texto colgando afuera del vidrio. */
+  text-align: center;
+  overflow-wrap: anywhere;
   box-shadow: var(--op-sheet), var(--op-e3);
   animation: op-pop-in var(--op-t-2) var(--op-ease) both;
   will-change: transform, opacity;
