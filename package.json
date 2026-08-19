@@ -1,7 +1,7 @@
 {
   "name": "mnemus",
   "productName": "Mnemus",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Flashcards con repaso espaciado (SM-2), construida sobre Opal.",
   "main": "main.cjs",
   "author": "Kidd Shady · Umbrovex Systems <umbrovex@proton.me>",
