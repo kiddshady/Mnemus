@@ -1,0 +1,130 @@
+<meta charset="utf-8">
+<!-- CSP estricta: sin conexiones externas, sin eval. Si tu app necesita hablar
+     con una API, agregá su origen a connect-src y nada más. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+<title>Engrama</title>
+
+<link rel="stylesheet" href="./css/fonts.css">
+<link rel="stylesheet" href="./css/tokens.css">
+<link rel="stylesheet" href="./css/base.css">
+<link rel="stylesheet" href="./css/motion.css">
+<link rel="stylesheet" href="./css/shell.css">
+<link rel="stylesheet" href="./css/controls.css">
+<link rel="stylesheet" href="./css/surfaces.css">
+<link rel="stylesheet" href="./css/overlays.css">
+<link rel="stylesheet" href="./css/engrama.css">
+
+<style>
+  /* Boot splash: réplica exacta del primer frame. Pinta ANTES de que cargue
+     ningún módulo, así no hay un solo instante sin identidad en pantalla.
+     El color tiene que ser el mismo backgroundColor de la BrowserWindow —
+     literal, no una variable: los tokens todavía podrían no haber cargado. */
+  #boot-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: grid;
+    place-items: center;
+    background: #0a0a0a;
+    transition: opacity .34s cubic-bezier(.16, 1, .3, 1);
+  }
+  #boot-splash svg { width: 46px; height: 46px; stroke: #f2f4f7; fill: none;
+                     stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
+  /* La marca se DIBUJA, no aparece: primero la traza, después el nodo. */
+  #boot-splash path { stroke-dasharray: 28; stroke-dashoffset: 28;
+                      animation: boot-draw .72s cubic-bezier(.16,1,.3,1) forwards; }
+  #boot-splash path:last-child { stroke-dasharray: 10; stroke-dashoffset: 10;
+                                 opacity: .34; animation-delay: .1s; }
+  @keyframes boot-draw { to { stroke-dashoffset: 0 } }
+</style>
+
+<div id="boot-splash">
+  <svg viewBox="0 0 16 16">
+    <path d="M1.8 10.5H4.6L6.4 3.2 8.2 12.4 9.6 10.5H14.2"/>
+    <path d="M6.4 1.6a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2"/>
+  </svg>
+</div>
+
+<div class="op-app">
+
+  <!-- El sustrato: la niebla que el vidrio difumina. Una capa, estática. -->
+  <div class="op-fog" aria-hidden="true"></div>
+
+  <!-- ── Titlebar propia: acá no hay frame nativo ─────────────────────────── -->
+  <header class="op-titlebar">
+    <div class="op-brand op-no-drag" data-tip="Engrama" id="brand">
+      <svg class="op-brand__mark op-icon" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M1.8 10.5H4.6L6.4 3.2 8.2 12.4 9.6 10.5H14.2"/>
+        <path class="op-brand__trail" d="M6.4 1.6a1.6 1.6 0 1 1 0 3.2a1.6 1.6 0 1 1 0-3.2"/>
+      </svg>
+      <span class="op-brand__name">Engrama</span>
+    </div>
+
+    <button class="op-iconbtn op-iconbtn--sm op-no-drag" id="btn-palette"
+            data-tip="Comandos" data-tip-key="Ctrl K"><i data-icon="search"></i></button>
+
+    <!-- Contexto de la vista actual. Lo llena el router. -->
+    <div class="op-titlebar__context" id="titlebar-context"></div>
+
+    <div class="op-wincontrols">
+      <button class="op-wincontrol" id="win-min"   aria-label="Minimizar"><i data-icon="winMin"></i></button>
+      <button class="op-wincontrol" id="win-max"   aria-label="Maximizar"><i data-icon="winMax"></i></button>
+      <button class="op-wincontrol op-wincontrol--close" id="win-close" aria-label="Cerrar"><i data-icon="winClose"></i></button>
+    </div>
+  </header>
+
+  <div class="op-body">
+
+    <!-- ── Rail ──────────────────────────────────────────────────────────── -->
+    <nav class="op-rail">
+      <div class="op-rail__top">
+        <button class="op-btn op-btn--secondary op-flashable" id="btn-repasar" style="width:100%">
+          <i data-icon="zap"></i> Repasar ahora
+        </button>
+      </div>
+
+      <div class="op-rail__nav op-scroll">
+        <div class="op-rail__group">
+          <button class="op-navitem" data-view="inicio">
+            <i data-icon="home"></i> Inicio
+          </button>
+          <button class="op-navitem" data-view="mazos">
+            <i data-icon="layers"></i> Mazos <span class="op-navitem__count">0</span>
+          </button>
+        </div>
+
+        <div class="op-rail__group">
+          <div class="op-rail__group-label">Sistema</div>
+          <button class="op-navitem" data-view="piezas">
+            <i data-icon="grid"></i> Piezas
+          </button>
+          <button class="op-navitem" data-view="ajustes">
+            <i data-icon="settings"></i> Ajustes
+          </button>
+        </div>
+      </div>
+
+      <div class="op-rail__foot" id="rail-foot"></div>
+    </nav>
+
+    <!-- ── Vista ─────────────────────────────────────────────────────────── -->
+    <main class="op-main" id="view"></main>
+  </div>
+
+  <!-- ── Statusbar ───────────────────────────────────────────────────────── -->
+  <footer class="op-statusbar">
+    <div class="op-statusbar__item" data-tip="Vencidas + nuevas del cupo diario" data-tip-side="top">
+      <i data-icon="zap"></i> <span class="op-statusbar__value op-num" id="stat-hoy">0</span> para hoy
+    </div>
+    <div class="op-statusbar__item" id="stat-saved" data-tip="Último guardado">
+      <i data-icon="save"></i> <span class="op-statusbar__value">—</span>
+    </div>
+    <div class="op-spacer"></div>
+  </footer>
+</div>
+
+<!-- Todos los overlays se portalean acá: fuera del flujo, por encima de todo. -->
+<div id="op-layer"></div>
+
+<script type="module" src="./js/app.js"></script>

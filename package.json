@@ -1,0 +1,18 @@
+{
+  "name": "engrama",
+  "productName": "Engrama",
+  "version": "0.1.0",
+  "description": "Engrama — app de escritorio construida sobre Opal.",
+  "main": "main.cjs",
+  "author": "Fran",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node test/tokens.test.mjs && node test/store.test.mjs && node test/format.test.mjs && node test/srs.test.mjs",
+    "smoke": "electron test/renderer.test.cjs"
+  },
+  "devDependencies": {
+    "electron": "40.10.2"
+  }
+}

@@ -1,0 +1,163 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ENGRAMA — piezas propias de la app
+   Lo que Opal no trae porque es del dominio: la ficha de repaso, el velo que
+   esconde la respuesta y la fila de calificación. Prefijo `en-`, conviviendo
+   con `op-` — las piezas del framework no se renombran.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── La sesión de repaso ─────────────────────────────────────────────────────
+   Una columna centrada sobre la niebla: progreso, la ficha, la calificación.
+   Sin scroll: una ficha por vez es el punto. */
+.en-repaso {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--op-5);
+  padding-bottom: var(--op-6);
+}
+
+.en-progreso {
+  width: min(680px, 100%);
+  display: flex;
+  align-items: center;
+  gap: var(--op-3);
+}
+.en-progreso .op-meter { flex: 1 1 auto; }
+
+/* ── La ficha ────────────────────────────────────────────────────────────────
+   Una hoja grande directo sobre la niebla. SIN backdrop-filter a propósito:
+   el único vidrio de esta pila es el velo — regla de las hojas. */
+.en-ficha {
+  width: min(680px, 100%);
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--op-s2);
+  border-radius: var(--op-r-xl);
+  box-shadow: var(--op-sheet), var(--op-e3);
+  overflow: hidden;
+}
+
+.en-ficha__zona {
+  flex: 1 1 50%;
+  display: grid;
+  place-items: center;
+  padding: var(--op-6) var(--op-7);
+  text-align: center;
+}
+
+.en-ficha__front {
+  font-size: var(--op-fs-19);
+  font-weight: var(--op-w-medium);
+  letter-spacing: var(--op-track-tight);
+  line-height: 1.45;
+  user-select: text;
+  cursor: text;
+}
+
+.en-ficha__divisor {
+  flex: 0 0 auto;
+  height: 1px;
+  margin: 0 var(--op-5);
+  background: var(--op-line);
+}
+
+.en-ficha__answer {
+  position: relative;
+  flex: 1 1 50%;
+  display: grid;
+  place-items: center;
+  padding: var(--op-6) var(--op-7);
+}
+
+.en-ficha__back {
+  font-size: var(--op-fs-15);
+  color: var(--op-text-2);
+  line-height: 1.6;
+  text-align: center;
+  user-select: text;
+  cursor: text;
+}
+
+/* ── El velo ─────────────────────────────────────────────────────────────────
+   La respuesta detrás del vidrio esmerilado, literalmente: el velo es una
+   hoja con backdrop-filter que DESENFOCA el texto que tiene debajo. Revelar
+   no anima el blur (nunca se anima): el velo entero sale con exit() y abajo
+   la respuesta ya estaba nítida.
+
+   inset:0 sin radio propio — el overflow:hidden de la ficha recorta las
+   esquinas, así el velo cubre la zona completa y ninguna palabra asoma. */
+.en-velo {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--op-s1);
+  backdrop-filter: var(--op-glass);
+  box-shadow: inset 0 1px 0 var(--op-edge-lit);
+  cursor: default;
+  border: 0;
+  animation: op-fade-in var(--op-t-3) var(--op-ease) both;
+  transition: background-color var(--op-t-2) var(--op-ease-soft);
+}
+.en-velo:hover { background: var(--op-s2); }
+.en-velo[data-state='closing'] { animation: op-fade-out var(--op-t-2) var(--op-ease-in) both; }
+.en-velo__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--op-2);
+  color: var(--op-text-3);
+  font-size: var(--op-fs-12);
+}
+
+/* ── La calificación ─────────────────────────────────────────────────────────
+   Cuatro opciones, ninguna primaria: calificar no tiene una respuesta
+   "correcta" que empujar. Cada botón muestra el intervalo que compraría.
+   Ocupa su lugar desde el arranque (visibility) para que revelar no mueva
+   la ficha: el layout no salta, el contenido se materializa. */
+.en-calif {
+  width: min(680px, 100%);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--op-2);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--op-t-3) var(--op-ease), transform var(--op-t-3) var(--op-ease);
+}
+.en-calif.is-on {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+}
+
+.en-calif .op-btn {
+  height: 44px;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+}
+.en-calif__int {
+  font-size: var(--op-fs-10);
+  color: var(--op-text-4);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--op-w-regular);
+}
+/* «Otra vez» es el único con carga: no es fallo del sistema (no es rojo
+   sólido), pero el texto avisa en rojo que la ficha vuelve a la cola. */
+.en-calif__otra .en-calif__int { color: var(--op-danger); }
+
+/* ── El final de la sesión ─────────────────────────────────────────────────── */
+.en-fin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--op-3);
+  text-align: center;
+  animation: op-rise-in var(--op-t-4) var(--op-ease) both;
+}
+.en-fin .op-icon { width: 34px; height: 34px; color: var(--op-text-3); stroke-width: 1; }
+.en-fin__cifras { display: flex; gap: var(--op-8); margin-top: var(--op-3); }
