@@ -8,17 +8,27 @@
    (ver srs.js) que decide cuándo volvés a verla. La sesión de repaso arma la
    cola del día, muestra el frente, esconde la respuesta detrás del velo
    esmerilado, y cada calificación reescribe la srs en disco.
+
+   Una ficha puede ser básica (te autocalificás), de opción múltiple o de
+   verdadero/falso (las contestás eligiendo, ver ficha.js). El tipo vive en la
+   ficha y no en el mazo: los tres conviven en la misma sesión sin que el SRS
+   se entere de la diferencia.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 import { Icons } from './icons.js';
 import { Tooltip, Toast, Menu, Modal } from './overlays.js';
 import Palette from './palette.js';
 import Router from './router.js';
-import { initClickFlash, initScrollFades, raf2, countTo, exit, bindStepper } from './motion.js';
+import { initClickFlash, initScrollFades, raf2, countTo, exit, bindStepper, bindSwitcher } from './motion.js';
 import { viewEl, esc, paint, head, empty, mark, setStateLabels, attempt, copy, colorToken } from './ui.js';
 import { relTime, plural } from './format.js';
 import { designHTML, wireDesign } from './design-view.js';
 import { DIA, GRADOS, srsNueva, esNueva, calificar, simular, armarCola, paraHoy, finDeHoy, vencida } from './srs.js';
+import {
+  TIPOS, ETIQUETA_TIPO, OPCIONES_VF, MIN_OPCIONES, MAX_OPCIONES,
+  tipoDe, opcionesDe, esInteractiva, indiceCorrecto, letra, gradoSugerido,
+  validar as validarFicha, normalizar as normalizarFicha,
+} from './ficha.js';
 
 const api = window.opal;
 const mazosCol = api.col('mazos');
@@ -125,7 +135,7 @@ function iniciarSesion(mazoId = null) {
     Toast.show({ title: 'Nada para repasar', text: 'No hay fichas vencidas ni nuevas por hoy.', icon: 'check' });
     return;
   }
-  S.sesion = { mazoId, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false };
+  S.sesion = { mazoId, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false, elegida: null };
   // Si ya estás parado en la vista repaso, go() no repinta: refresh lo fuerza.
   Router.go('repaso', mazoId || 'todo') || Router.refresh();
 }
@@ -146,13 +156,67 @@ async function calificarActual(q) {
   }
   ses.idx += 1;
   ses.revelada = false;
+  ses.elegida = null;
   Router.refresh();
+}
+
+/**
+ * Contestar una ficha de opción múltiple o de verdadero/falso: marca lo
+ * elegido, destapa cuál era, y revela la explicación.
+ *
+ * No califica sola. Sugiere —resaltando un botón y enfocándolo, así Enter lo
+ * toma— pero la última palabra la tiene el que estudia: acertar tirando una
+ * moneda entre dos opciones no merece el mismo ease que saberlo, y SM-2 se
+ * envenena si el ease sube por suerte.
+ */
+function elegirOpcion(i) {
+  const ses = S.sesion;
+  if (!ses || ses.revelada || ses.elegida != null) return;
+  const f = ses.cola[ses.idx];
+  if (!esInteractiva(f) || i < 0 || i >= opcionesDe(f).length) return;
+
+  ses.elegida = i;
+  revelar();                                  // el pintado de las opciones vive ahí
+
+  const sugerido = gradoSugerido(i === indiceCorrecto(f));
+  const btn = document.querySelector(`#calif [data-grado="${sugerido}"]`);
+  if (btn) {
+    btn.classList.add('is-sugerido');
+    // El foco espera a que la fila termine de entrar: enfocar algo que todavía
+    // es visibility:hidden no le da el foco a nadie.
+    setTimeout(() => btn.focus({ preventScroll: true }), 280);
+  }
+}
+
+/** Destapa el resultado sobre las alternativas. `elegida` puede ser null: es
+    el caso de rendirse con Espacio, y ahí solo se muestra cuál era. */
+function pintarOpciones(f, elegida) {
+  const lista = document.getElementById('opciones');
+  if (!lista) return;
+  const correcta = indiceCorrecto(f);
+  lista.classList.add('is-resuelta');
+  lista.querySelectorAll('.mn-opcion').forEach((btn, j) => {
+    const marca = btn.querySelector('.mn-opcion__marca');
+    if (j === correcta) {
+      btn.classList.add('is-correcta');
+      marca.innerHTML = Icons.svg('check');
+    } else if (j === elegida) {
+      btn.classList.add('is-errada');
+      marca.innerHTML = Icons.svg('close');
+    } else {
+      btn.classList.add('is-apagada');
+    }
+  });
 }
 
 function revelar() {
   const ses = S.sesion;
   if (!ses || ses.revelada) return;
   ses.revelada = true;
+
+  const f = ses.cola[ses.idx];
+  if (esInteractiva(f)) pintarOpciones(f, ses.elegida);
+
   // El orden importa: primero se pinta la respuesta DEBAJO del velo, después
   // el velo se disuelve — el texto se aclara a través del vidrio que se va.
   const back = document.getElementById('back');
@@ -281,7 +345,7 @@ function rowFicha(f) {
       ${mark(estadoFicha(f))}
       <div class="op-listitem__main">
         <span class="op-listitem__title">${esc(f.front)}</span>
-        <span class="op-listitem__sub">${esc(venceTxt(f))}${f.srs?.lapses ? ` · ${plural(f.srs.lapses, 'olvido')}` : ''}</span>
+        <span class="op-listitem__sub">${tipoDe(f) === 'basica' ? '' : `${esc(ETIQUETA_TIPO[tipoDe(f)])} · `}${esc(venceTxt(f))}${f.srs?.lapses ? ` · ${plural(f.srs.lapses, 'olvido')}` : ''}</span>
       </div>
       <div class="op-rowactions">
         <button class="op-iconbtn op-iconbtn--sm" data-menu="ficha" data-menu-arg="${esc(f.id)}" data-tip="Más"><i data-icon="more"></i></button>
@@ -308,7 +372,7 @@ function viewRepaso(param) {
       }));
       return;
     }
-    S.sesion = { mazoId, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false };
+    S.sesion = { mazoId, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false, elegida: null };
   }
 
   const ses = S.sesion;
@@ -319,11 +383,16 @@ function viewRepaso(param) {
     if (e.target.closest?.('input, textarea')) return;
     if (document.querySelector('.op-modal, .op-palette, .op-menu')) return;
     if (e.key === ' ') { e.preventDefault(); ses.revelada ? null : revelar(); }
-    const idx = ['1', '2', '3', '4'].indexOf(e.key);
-    if (idx >= 0) {
-      e.preventDefault();
-      calificarActual([GRADOS.otra, GRADOS.dificil, GRADOS.bien, GRADOS.facil][idx]);
-    }
+
+    const n = '123456'.indexOf(e.key);
+    if (n < 0) return;
+    e.preventDefault();
+    /* El mismo dígito significa dos cosas según la fase, y nunca las dos a la
+       vez: antes de contestar elige una alternativa, después califica. Por eso
+       las opciones se rotulan con letras — si también fueran números, «3»
+       sería la opción C y «Bien» al mismo tiempo. */
+    if (!ses.revelada && esInteractiva(ses.cola[ses.idx])) elegirOpcion(n);
+    else if (n < 4) calificarActual([GRADOS.otra, GRADOS.dificil, GRADOS.bien, GRADOS.facil][n]);
   };
   document.addEventListener('keydown', onKey);
   Router.onLeave(() => document.removeEventListener('keydown', onKey));
@@ -352,6 +421,8 @@ function viewRepaso(param) {
   const f = ses.cola[ses.idx];
   const m = mazo(f.mazo);
   const pct = Math.round((ses.idx / ses.cola.length) * 100);
+  const interactiva = esInteractiva(f);
+  const ops = opcionesDe(f);
   const grados = [
     ['otra', 'Otra vez', GRADOS.otra],
     ['dificil', 'Difícil', GRADOS.dificil],
@@ -371,17 +442,33 @@ function viewRepaso(param) {
         <span class="op-meta op-num">${ses.otraVez} otra vez</span>
       </div>
 
-      <div class="mn-ficha">
-        <div class="mn-ficha__zona"><div class="mn-ficha__front op-copyable">${esc(f.front)}</div></div>
+      <div class="mn-ficha${interactiva ? ' mn-ficha--interactiva' : ''}">
+        <div class="mn-ficha__zona">${interactiva ? `
+          <div class="mn-consulta op-scroll">
+            <div class="mn-ficha__front op-copyable">${esc(f.front)}</div>
+            <div class="mn-opciones" id="opciones">
+              ${ops.map((o, i) => `
+                <button class="mn-opcion op-flashable" data-opcion="${i}">
+                  <span class="mn-opcion__letra">${letra(i)}</span>
+                  <span class="mn-opcion__texto op-copyable">${esc(o)}</span>
+                  <span class="op-kbd">${i + 1}</span>
+                  <span class="mn-opcion__marca"></span>
+                </button>`).join('')}
+            </div>
+          </div>`
+          : `<div class="mn-ficha__front op-copyable">${esc(f.front)}</div>`}
+        </div>
         <div class="mn-ficha__divisor"></div>
         <div class="mn-ficha__answer">
           <!-- La respuesta nace SIN PINTAR (visibility:hidden), no solo tapada:
                así ningún capricho del compositor puede dejarla legible antes
                de tiempo. El des-esmerilado real pasa al revelar: se pinta el
                texto debajo del velo y el velo se disuelve encima. -->
-          <div class="mn-ficha__back op-copyable" id="back" style="visibility:hidden">${esc(f.back)}</div>
+          <div class="mn-ficha__back op-copyable${interactiva ? ' op-scroll' : ''}" id="back" style="visibility:hidden">${esc(f.back)}</div>
           <button class="mn-velo" id="velo" aria-label="Revelar la respuesta">
-            <span class="mn-velo__hint"><span class="op-kbd">Espacio</span> revelar</span>
+            <span class="mn-velo__hint">${interactiva
+              ? 'Elegí una · <span class="op-kbd">Espacio</span> la muestra'
+              : '<span class="op-kbd">Espacio</span> revelar'}</span>
           </button>
         </div>
       </div>
@@ -397,6 +484,13 @@ function viewRepaso(param) {
 
   const raiz = viewEl();
   raiz.querySelector('#velo').addEventListener('click', revelar);
+  raiz.querySelector('#opciones')?.addEventListener('click', (e) => {
+    // El texto de las alternativas es copiable: marcarlo y soltar dispara un
+    // click que NO es una respuesta. Si quedó algo seleccionado, no fue elegir.
+    if (!window.getSelection().isCollapsed) return;
+    const btn = e.target.closest('[data-opcion]');
+    if (btn) elegirOpcion(Number(btn.dataset.opcion));
+  });
   raiz.querySelector('#calif').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-grado]');
     if (btn) calificarActual(Number(btn.dataset.grado));
@@ -568,31 +662,149 @@ async function eliminarMazo(id) {
 async function fichaModal(mazoId, fichaId = null) {
   const original = fichaId ? S.fichas.find((f) => f.id === fichaId) : null;
 
+  /* El borrador vive AFUERA del while: cargando un mazo de opción múltiple de
+     a diez fichas, «Guardar y otra» tiene que dejarte en opción múltiple. Se
+     vacía el contenido entre fichas, nunca la forma. */
+  const borrador = {
+    tipo: tipoDe(original),
+    front: original?.front || '',
+    back: original?.back || '',
+    opciones: tipoDe(original) === 'opcion' ? opcionesDe(original) : ['', '', '', ''],
+    correcta: Math.max(0, indiceCorrecto(original)),
+  };
+
   while (true) {
     const body = document.createElement('div');
     body.className = 'op-col';
     body.style.gap = '16px';
     body.innerHTML = `
       <div class="op-field">
-        <label class="op-field__label">Frente — la pregunta</label>
-        <textarea class="op-textarea" id="f-front" rows="3"
-                  placeholder="¿Qué enzima inhibe la aspirina?"></textarea>
+        <label class="op-field__label">Tipo</label>
+        <div class="op-segmented" id="f-tipo">
+          ${TIPOS.map((t) => `
+            <button class="op-segmented__opt${t === borrador.tipo ? ' is-active' : ''}" data-value="${t}">
+              ${esc(ETIQUETA_TIPO[t])}
+            </button>`).join('')}
+        </div>
       </div>
       <div class="op-field">
-        <label class="op-field__label">Dorso — la respuesta</label>
-        <textarea class="op-textarea" id="f-back" rows="4"
-                  placeholder="La ciclooxigenasa (COX), de forma irreversible."></textarea>
+        <label class="op-field__label" id="f-front-label"></label>
+        <textarea class="op-textarea" id="f-front" rows="2"></textarea>
+      </div>
+      <div id="f-dinamico"></div>
+      <div class="op-field">
+        <label class="op-field__label" id="f-back-label"></label>
+        <textarea class="op-textarea" id="f-back" rows="3"></textarea>
       </div>`;
-    if (original) {
-      body.querySelector('#f-front').value = original.front;
-      body.querySelector('#f-back').value = original.back;
-    }
+
+    const $ = (sel) => body.querySelector(sel);
+    const front = $('#f-front');
+    const back = $('#f-back');
+    front.value = borrador.front;
+    back.value = borrador.back;
+
+    /** Vuelca lo tipeado al borrador. Se llama antes de repintar y antes de
+        guardar: sin esto, cambiar de tipo se come lo que venías escribiendo. */
+    const leer = () => {
+      borrador.front = front.value;
+      borrador.back = back.value;
+      const alts = [...body.querySelectorAll('[data-alt]')];
+      if (alts.length) borrador.opciones = alts.map((i) => i.value);
+    };
+
+    /* Lo que cambia con el tipo: los textos de los dos campos fijos y el
+       bloque del medio. Se repinta entero en vez de mostrar y esconder tres
+       formularios — el DOM que no existe no se puede desincronizar. */
+    const pintarTipo = () => {
+      const t = borrador.tipo;
+      $('#f-front-label').textContent = t === 'vf' ? 'La afirmación' : 'Frente — la pregunta';
+      $('#f-back-label').textContent = t === 'basica' ? 'Dorso — la respuesta' : 'Dorso — la explicación';
+      front.placeholder = t === 'vf'
+        ? 'El nervio vago llega hasta el colon descendente.'
+        : '¿Qué enzima inhibe la aspirina?';
+      back.placeholder = t === 'basica'
+        ? 'La ciclooxigenasa (COX), de forma irreversible.'
+        : 'Por qué: el vago llega solo hasta el ángulo esplénico (punto de Cannon-Böhm).';
+
+      const din = $('#f-dinamico');
+      if (t === 'basica') { din.innerHTML = ''; return; }
+
+      if (t === 'vf') {
+        din.innerHTML = `
+          <div class="op-field">
+            <label class="op-field__label">La afirmación es…</label>
+            <div class="op-segmented" id="f-vf">
+              ${OPCIONES_VF.map((o, i) => `
+                <button class="op-segmented__opt${i === borrador.correcta ? ' is-active' : ''}" data-value="${i}">${o}</button>`).join('')}
+            </div>
+          </div>`;
+        bindSwitcher($('#f-vf'), (v) => { borrador.correcta = Number(v); });
+        return;
+      }
+
+      din.innerHTML = `
+        <div class="op-field">
+          <label class="op-field__label">Alternativas — marcá la correcta</label>
+          <div class="op-col" style="gap:6px" id="f-alts">
+            ${borrador.opciones.map((o, i) => `
+              <div class="op-row" style="gap:8px">
+                <button class="op-check${i === borrador.correcta ? ' is-on' : ''}" data-correcta="${i}"
+                        data-tip="Esta es la correcta"><i data-icon="check"></i></button>
+                <input class="op-input op-grow" data-alt="${i}" spellcheck="false"
+                       placeholder="Alternativa ${letra(i)}" value="${esc(o)}">
+                <button class="op-iconbtn op-iconbtn--sm" data-quitar="${i}" data-tip="Quitar"
+                        ${borrador.opciones.length <= MIN_OPCIONES ? 'disabled' : ''}><i data-icon="close"></i></button>
+              </div>`).join('')}
+          </div>
+          <div class="op-row" style="margin-top:8px">
+            <button class="op-btn op-btn--ghost op-btn--sm op-flashable" id="f-add"
+                    ${borrador.opciones.length >= MAX_OPCIONES ? 'disabled' : ''}><i data-icon="plus"></i> Agregar alternativa</button>
+          </div>
+          <span class="op-field__hint" style="margin-top:8px">Hasta ${MAX_OPCIONES}. En el repaso se rotulan A, B, C… y se eligen con las teclas 1 a ${MAX_OPCIONES}.</span>
+        </div>`;
+
+      Icons.mount(din);
+
+      $('#f-alts').addEventListener('click', (e) => {
+        const marcar = e.target.closest('[data-correcta]');
+        if (marcar) {
+          // Es un radio con cara de check: la correcta es una sola.
+          borrador.correcta = Number(marcar.dataset.correcta);
+          $('#f-alts').querySelectorAll('[data-correcta]').forEach((c, i) => c.classList.toggle('is-on', i === borrador.correcta));
+          return;
+        }
+        const quitar = e.target.closest('[data-quitar]');
+        if (quitar && !quitar.disabled) {
+          leer();
+          const i = Number(quitar.dataset.quitar);
+          borrador.opciones.splice(i, 1);
+          // El índice de la correcta se corre con lo que quedó arriba de ella;
+          // si la borrada ERA la correcta, la marca pasa a la primera.
+          if (borrador.correcta === i) borrador.correcta = 0;
+          else if (borrador.correcta > i) borrador.correcta -= 1;
+          pintarTipo();
+        }
+      });
+
+      $('#f-add').addEventListener('click', () => {
+        if (borrador.opciones.length >= MAX_OPCIONES) return;
+        leer();
+        borrador.opciones.push('');
+        pintarTipo();
+        // El campo recién creado se enfoca: agregar una alternativa es querer
+        // escribirla, no mirarla.
+        din.querySelector(`[data-alt="${borrador.opciones.length - 1}"]`)?.focus();
+      });
+    };
+
+    bindSwitcher($('#f-tipo'), (v) => { leer(); borrador.tipo = v; pintarTipo(); });
+    pintarTipo();
 
     const res = await Modal.show({
       title: original ? 'Editar ficha' : 'Nueva ficha',
       sub: original ? `${original.id} · el historial de repaso se conserva.` : undefined,
       body,
-      width: 520,
+      width: 560,
       actions: [
         { label: 'Cancelar', value: null },
         ...(original ? [] : [{ label: 'Guardar y otra', value: 'otra' }]),
@@ -601,25 +813,42 @@ async function fichaModal(mazoId, fichaId = null) {
     });
     if (!res) return;
 
-    const front = body.querySelector('#f-front').value.trim();
-    const back = body.querySelector('#f-back').value.trim();
-    if (!front || !back) {
-      Toast.error('Ficha incompleta', 'El frente y el dorso no pueden quedar vacíos.');
-      if (res !== 'otra') return;
+    leer();
+    const propuesta = normalizarFicha({
+      ...(original || {}),
+      tipo: borrador.tipo,
+      front: borrador.front,
+      back: borrador.back,
+      opciones: borrador.opciones,
+      correcta: borrador.correcta,
+    });
+
+    const problema = validarFicha(propuesta);
+    if (problema) {
+      Toast.error('Ficha incompleta', problema);
+      // Se vuelve a abrir con TODO lo que había: el borrador vive afuera del
+      // while justamente para esto. Cerrar el modal ante un error te hace
+      // perder cuatro alternativas escritas por una que quedó vacía.
       continue;
     }
 
     await attempt(async () => {
       if (original) {
-        await saveFicha({ ...original, front, back });
+        await saveFicha(propuesta);
       } else {
         const id = await fichasCol.nextId('f');
-        await saveFicha({ id, mazo: mazoId, front, back, srs: srsNueva(), createdAt: Date.now() });
+        await saveFicha({ ...propuesta, id, mazo: mazoId, srs: srsNueva(), createdAt: Date.now() });
       }
       Router.refresh();
     }, { errorTitle: 'No se pudo guardar la ficha' });
 
     if (res !== 'otra') return;
+    // Se vacía el contenido y se conserva la forma: el tipo y la cantidad de
+    // alternativas siguen ahí para la que viene.
+    borrador.front = '';
+    borrador.back = '';
+    borrador.opciones = borrador.opciones.map(() => '');
+    borrador.correcta = 0;
     Toast.show({ title: 'Guardada', text: 'Lista la siguiente.', icon: 'check', duration: 1600 });
   }
 }

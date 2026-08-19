@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    MNEMUS — piezas propias de la app
    Lo que Opal no trae porque es del dominio: la ficha de repaso, el velo que
-   esconde la respuesta y la fila de calificación. Prefijo `mn-`, conviviendo
-   con `op-` — las piezas del framework no se renombran.
+   esconde la respuesta, las alternativas de las fichas que se contestan
+   eligiendo, y la fila de calificación. Prefijo `mn-`, conviviendo con `op-`
+   — las piezas del framework no se renombran.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── La sesión de repaso ─────────────────────────────────────────────────────
@@ -82,6 +83,139 @@
   cursor: text;
 }
 
+/* ── Las fichas que se contestan eligiendo ───────────────────────────────────
+   Opción múltiple y verdadero/falso. La estructura es la MISMA de siempre —
+   frente arriba, velo y explicación abajo — con las alternativas metidas en
+   la zona del frente. Todo lo de acá cuelga de `--interactiva` a propósito:
+   una ficha básica tiene que verse exactamente igual que antes de que estos
+   tipos existieran.
+
+   El scroll interno va en `.mn-consulta` y en `.mn-ficha__back`, nunca en un
+   ancestro del velo: la máscara de `.op-scroll` deja CIEGO al backdrop-filter
+   que tenga debajo (ver la frontera de backdrop en docs/sistema.md), y el
+   velo dejaría de esmerilar la respuesta. Los dos son HERMANOS del velo, no
+   sus padres, así que la máscara no lo alcanza. */
+.mn-ficha--interactiva { max-height: 100%; }
+
+/* Ninguna de las dos zonas CRECE acá — las dos toman su alto natural y la
+   ficha entera se estira hasta contenerlas. El 50/50 de la ficha básica no
+   sirve cuando arriba hay una lista: repartir por mitades recorta la última
+   alternativa y deja media ficha de aire abajo. Encoger sí pueden (shrink 1),
+   y ahí cada una scrollea lo suyo. */
+.mn-ficha--interactiva .mn-ficha__zona {
+  flex: 0 1 auto;
+  min-height: 0;
+  align-items: stretch;
+  padding-block: var(--op-3);
+}
+.mn-ficha--interactiva .mn-ficha__answer {
+  flex: 0 1 auto;
+  min-height: 150px;                 /* el piso para que el velo sea una zona, no una línea */
+}
+.mn-ficha--interactiva .mn-ficha__back {
+  max-height: 100%;
+  width: 100%;
+}
+
+.mn-consulta {
+  width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-4);
+}
+/* Un punto menos que en la básica: acá la pregunta comparte la zona con las
+   alternativas, y a 19px les roba el aire. */
+.mn-consulta .mn-ficha__front { font-size: var(--op-fs-15); }
+
+.mn-opciones {
+  display: flex;
+  flex-direction: column;
+  gap: var(--op-2);
+  text-align: left;
+}
+/* Contestada: las alternativas se vuelven un resumen de lo que pasó, no
+   siguen ofreciéndose. */
+.mn-opciones.is-resuelta { pointer-events: none; }
+
+.mn-opcion {
+  display: flex;
+  align-items: center;
+  gap: var(--op-3);
+  width: 100%;
+  min-height: 40px;
+  padding: var(--op-2) var(--op-3);
+  border: 0;
+  border-radius: var(--op-r-md);
+  background: var(--op-sunken);
+  box-shadow: var(--op-hairline);
+  color: var(--op-text);
+  font-size: var(--op-fs-13);
+  text-align: left;
+  cursor: default;
+  transition: var(--tr-surface), var(--tr-color);
+}
+.mn-opcion:hover { background: var(--op-wash-1); }
+.mn-opcion:active { background: var(--op-wash-3); }
+
+/* La letra es la etiqueta de la opción; el número de al lado es la tecla. Dos
+   símbolos distintos para dos cosas distintas — si las dos fueran números,
+   «3» significaría la tercera opción y la calificación «Bien» a la vez. */
+.mn-opcion__letra {
+  flex: 0 0 auto;
+  width: 20px;
+  font-family: var(--op-mono);
+  font-size: var(--op-fs-11);
+  color: var(--op-text-3);
+  transition: var(--tr-color);
+}
+.mn-opcion__texto { flex: 1 1 auto; min-width: 0; line-height: 1.4; }
+.mn-opcion .op-kbd {
+  flex: 0 0 auto;
+  opacity: 1;
+  transition: opacity var(--op-t-2) var(--op-ease-soft);
+}
+.mn-opciones.is-resuelta .op-kbd { opacity: 0; }
+
+/* La marca ocupa su lugar desde el principio (igual que la fila de
+   calificación): al resolverse aparece el símbolo, no salta el ancho. */
+.mn-opcion__marca {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transform: scale(.7);
+  transition: opacity var(--op-t-2) var(--op-ease), transform var(--op-t-2) var(--op-ease);
+}
+.mn-opcion__marca .op-icon { width: 15px; height: 15px; }
+.mn-opcion.is-correcta .mn-opcion__marca,
+.mn-opcion.is-errada .mn-opcion__marca { opacity: 1; transform: none; }
+
+/* La correcta se TALLA con el acento —canto vivo y un wash— en vez de
+   pintarse de verde: el sistema no tiene un verde, y agregarlo sería el
+   segundo color de acento que la paleta no quiere. */
+.mn-opcion.is-correcta {
+  background: var(--op-wash-2);
+  box-shadow: inset 0 0 0 1px var(--op-rim);
+}
+.mn-opcion.is-correcta .mn-opcion__letra,
+.mn-opcion.is-correcta .mn-opcion__marca { color: var(--op-accent); }
+
+/* El rojo acá sí es fallo literal: elegiste mal. */
+.mn-opcion.is-errada {
+  background: var(--op-danger-wash);
+  box-shadow: inset 0 0 0 1px var(--op-danger-dim);
+}
+.mn-opcion.is-errada .mn-opcion__letra,
+.mn-opcion.is-errada .mn-opcion__marca { color: var(--op-danger); }
+
+/* Las que no eligió ni eran: se apagan para que las dos que importan queden
+   solas en la mirada. */
+.mn-opcion.is-apagada { background: none; box-shadow: none; color: var(--op-text-4); }
+.mn-opcion.is-apagada .mn-opcion__letra { color: var(--op-text-4); }
+
 /* ── El velo ─────────────────────────────────────────────────────────────────
    La respuesta detrás del vidrio esmerilado, literalmente: el velo es una
    hoja con backdrop-filter que DESENFOCA el texto que tiene debajo. Revelar
@@ -149,6 +283,14 @@
 /* «Otra vez» es el único con carga: no es fallo del sistema (no es rojo
    sólido), pero el texto avisa en rojo que la ficha vuelve a la cola. */
 .mn-calif__otra .mn-calif__int { color: var(--op-danger); }
+
+/* El sugerido de una ficha que se contestó eligiendo. Es un canto, no un
+   relleno: la app propone, no decide — acertar de casualidad entre dos no
+   merece el mismo ease que saberlo, y eso lo sabe el que estudia, no SM-2. */
+.mn-calif .op-btn.is-sugerido {
+  box-shadow: inset 0 0 0 1px var(--op-rim);
+  transition: box-shadow var(--op-t-2) var(--op-ease-soft), var(--tr-color), var(--tr-surface);
+}
 
 /* ── El final de la sesión ─────────────────────────────────────────────────── */
 .mn-fin {

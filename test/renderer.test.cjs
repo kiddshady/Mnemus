@@ -149,6 +149,77 @@ app.whenReady().then(async () => {
   ok('y vence en el futuro', srsTras?.due > Date.now());
   ok('la sesión terminó con su resumen', await js(`!!document.querySelector('.mn-fin')`));
 
+  /* Los tipos que se contestan eligiendo. Lo que se mide acá no es que las
+     alternativas existan, sino que el resultado quede BIEN REPARTIDO: una
+     correcta, una errada y el resto apagadas. Un bug que marque dos correctas
+     —o ninguna— se ve idéntico en el DOM si solo contás elementos. */
+  console.log('\n4-bis. Opción múltiple: elegir, corregir y sugerir');
+  await click('[data-view="mazos"]');
+  await sleep(600);
+  await click(`[data-open-mazo="${mazoId}"]`);
+  await sleep(700);
+  await click('[data-action="nueva-ficha"]');
+  await sleep(600);
+
+  await click('#f-tipo [data-value="opcion"]');
+  await sleep(500);
+  ok('el modal ofrece los tres tipos', (await js(`document.querySelectorAll('#f-tipo .op-segmented__opt').length`)) === 3);
+  ok('y abre 4 alternativas vacías', (await js(`document.querySelectorAll('[data-alt]').length`)) === 4);
+  await js(`(() => {
+    document.getElementById('f-front').value = '¿Cuál de estas es la correcta?';
+    document.getElementById('f-back').value = 'La tercera: la escribió el test.';
+    ['una', 'otra', 'la correcta', 'ninguna'].forEach((v, i) => {
+      document.querySelector('[data-alt="' + i + '"]').value = v;
+    });
+    return true; })()`);
+  await click('[data-correcta="2"]');
+  await sleep(300);
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1200);
+
+  // Por el frente, no por el tipo: el directorio de datos puede tener mazos
+  // reales con fichas de opción múltiple, y `find` agarraría cualquiera.
+  const mc = await js(`window.opal.col('fichas').list()
+    .then(l => l.find(f => f.front === '¿Cuál de estas es la correcta?') || null)`);
+  ok('la ficha de opción múltiple llegó al disco', !!mc, JSON.stringify(mc));
+  ok('con sus 4 alternativas', mc?.opciones?.length === 4, JSON.stringify(mc?.opciones));
+  ok('y la correcta apuntando a la tercera', mc?.opciones?.[mc?.correcta] === 'la correcta', String(mc?.correcta));
+
+  await click(`[data-action="repasar"][data-arg="${mazoId}"]`);
+  await sleep(900);
+  ok('la ficha se monta en su variante interactiva', await js(`!!document.querySelector('.mn-ficha--interactiva')`));
+  ok('con una alternativa por opción', (await js(`document.querySelectorAll('.mn-opcion').length`)) === 4);
+  ok('rotuladas A, B, C, D',
+    (await js(`[...document.querySelectorAll('.mn-opcion__letra')].map(e => e.textContent.trim()).join('')`)) === 'ABCD');
+  ok('el velo sigue tapando la explicación',
+    await js(`getComputedStyle(document.getElementById('back')).visibility === 'hidden'`));
+
+  await click('.mn-opcion[data-opcion="1"]');       // la B: incorrecta a propósito
+  await sleep(700);
+  const reparto = await js(`JSON.stringify({
+    correcta: [...document.querySelectorAll('.mn-opcion')].findIndex(e => e.classList.contains('is-correcta')),
+    errada: [...document.querySelectorAll('.mn-opcion')].findIndex(e => e.classList.contains('is-errada')),
+    apagadas: document.querySelectorAll('.mn-opcion.is-apagada').length,
+    marcas: document.querySelectorAll('.mn-opcion__marca .op-icon').length,
+    sugerido: document.querySelector('#calif .is-sugerido')?.dataset.grado,
+    velo: !!document.getElementById('velo'),
+    back: getComputedStyle(document.getElementById('back')).visibility,
+  })`);
+  const r = JSON.parse(reparto);
+  ok('la C quedó marcada como la correcta', r.correcta === 2, reparto);
+  ok('la B elegida quedó marcada como errada', r.errada === 1, reparto);
+  ok('las otras dos se apagaron', r.apagadas === 2, reparto);
+  ok('hay exactamente dos símbolos, no cuatro', r.marcas === 2, reparto);
+  ok('elegir revela: el velo se fue', !r.velo);
+  ok('y la explicación se pintó', r.back === 'visible');
+  ok('errar sugiere «Otra vez» (grado 0)', r.sugerido === '0', reparto);
+
+  await click('[data-grado="0"]');
+  await sleep(1000);
+  const srsMc = await js(`window.opal.col('fichas').get(${JSON.stringify(mc.id)}).then(f => f.srs)`);
+  ok('el olvido llegó al disco', srsMc?.lapses === 1 && srsMc?.reps === 0, JSON.stringify(srsMc));
+  ok('y la ficha vuelve en la misma sesión', await js(`!!document.querySelector('.mn-ficha')`));
+
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('[data-view="inicio"]');
   await sleep(700);
