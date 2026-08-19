@@ -2,17 +2,54 @@
   "name": "mnemus",
   "productName": "Mnemus",
   "version": "0.1.0",
-  "description": "Mnemus — app de escritorio construida sobre Opal.",
+  "description": "Flashcards con repaso espaciado (SM-2), construida sobre Opal.",
   "main": "main.cjs",
-  "author": "Fran",
+  "author": "Kidd Shady · Umbrovex Systems <umbrovex@proton.me>",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
     "test": "node test/tokens.test.mjs && node test/store.test.mjs && node test/format.test.mjs && node test/srs.test.mjs",
-    "smoke": "electron test/renderer.test.cjs"
+    "smoke": "electron test/renderer.test.cjs",
+    "icons": "node tools/build-icon.mjs",
+    "dist": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "40.10.2"
+    "electron": "40.10.2",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "systems.umbrovex.mnemus",
+    "copyright": "© 2026 Kidd Shady · Umbrovex Systems",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "src/**/*",
+      "renderer/**/*",
+      "LICENSE",
+      "NOTICE"
+    ],
+    "publish": null,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "Mnemus-Setup-${version}.${ext}",
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }
