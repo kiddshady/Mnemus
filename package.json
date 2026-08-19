@@ -12,7 +12,11 @@
     "test": "node test/tokens.test.mjs && node test/store.test.mjs && node test/format.test.mjs && node test/srs.test.mjs && node test/ficha.test.mjs",
     "smoke": "electron test/renderer.test.cjs",
     "icons": "node tools/build-icon.mjs",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "electron": "40.10.2",
@@ -33,7 +37,13 @@
       "LICENSE",
       "NOTICE"
     ],
-    "publish": null,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kiddshady",
+        "repo": "Mnemus"
+      }
+    ],
     "win": {
       "target": [
         {

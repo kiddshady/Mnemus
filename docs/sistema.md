@@ -442,8 +442,7 @@ el `0.149` del lightness como si fuera el canal verde: arma `#009500` y la app
 arranca con medio segundo de pantalla **verde**. Es un hex válido, así que
 ninguna validación de forma lo agarra. `colorToken()` pinta el color en un
 canvas de 1×1 y lee el píxel, que funciona con cualquier notación presente y
-futura. El caso completo está en
-`C:\tools\electron-dev-docs\METODO-Flash-Verde-Arranque-Electron-Win11.md`.
+futura.
 
 Y de `format.js`: `fmtDur` · `fmtNum` · `fmtBytes` · `fmtMoney` · `fmtClock` ·
 `fmtDate` · `relTime` · `monogram` · `plural` · `ellipsize`.

@@ -41,6 +41,18 @@ contextBridge.exposeInMainWorld('opal', {
     save: (patch) => call('settings:save', patch),
   },
 
+  /** Actualización automática. `pending` existe porque el renderer puede
+      montar DESPUÉS de que la descarga terminó, y ahí el evento ya pasó. */
+  update: {
+    pending: () => ipcRenderer.invoke('update:pending'),
+    install: () => ipcRenderer.invoke('update:install'),
+    onReady: (cb) => {
+      const handler = (_e, info) => cb(info);
+      ipcRenderer.on('update:ready', handler);
+      return () => ipcRenderer.off('update:ready', handler);
+    },
+  },
+
   /** Documento suelto: un borrador, un caché, el último estado de la UI. */
   doc: {
     read: (name, fallback = null) => call('doc:read', name, fallback),

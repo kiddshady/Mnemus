@@ -119,10 +119,16 @@ const Toast = (() => {
   }
 
   /**
-   * Toast.show({ title, text, tone: 'default'|'error', duration, icon })
+   * Toast.show({ title, text, tone: 'default'|'error', duration, icon, actions })
    * duration:0 → se queda hasta que lo cierren.
+   *
+   * actions: [{ label, onSelect, variant }] — para el aviso que además OFRECE
+   * algo ("hay una versión nueva · reiniciar"). Un toast con acciones casi
+   * siempre quiere `duration: 0`: una decisión que se va sola a los cuatro
+   * segundos no es una decisión. El toast se cierra después de ejecutar la
+   * acción, así que `onSelect` no tiene que acordarse de cerrarlo.
    */
-  function show({ title, text = '', tone = 'default', duration = 4200, icon } = {}) {
+  function show({ title, text = '', tone = 'default', duration = 4200, icon, actions = [] } = {}) {
     const el = document.createElement('div');
     el.className = `op-toast${tone === 'error' ? ' op-toast--error' : ''}`;
     el.style.setProperty('--life', `${duration}ms`);
@@ -133,6 +139,8 @@ const Toast = (() => {
       <div class="op-toast__main">
         <div class="op-toast__title"></div>
         ${text ? '<div class="op-toast__text"></div>' : ''}
+        ${actions.length ? `<div class="op-toast__actions">${actions.map((a, i) => `
+          <button class="op-btn op-btn--sm op-flashable op-btn--${a.variant || 'ghost'}" data-act="${i}"></button>`).join('')}</div>` : ''}
       </div>
       <button class="op-iconbtn op-iconbtn--sm" data-close>${Icons.svg('close')}</button>
       ${duration ? '<span class="op-toast__life"></span>' : ''}`;
@@ -145,6 +153,12 @@ const Toast = (() => {
 
     const close = () => exit(el, { fallback: 260 });
     el.querySelector('[data-close]').addEventListener('click', close);
+
+    actions.forEach((a, i) => {
+      const btn = el.querySelector(`[data-act="${i}"]`);
+      btn.textContent = a.label;
+      btn.addEventListener('click', () => { close(); a.onSelect?.(); });
+    });
 
     if (duration) {
       let timer = setTimeout(close, duration);

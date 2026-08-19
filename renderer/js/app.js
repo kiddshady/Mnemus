@@ -1050,6 +1050,36 @@ function syncWindowColor() {
   if (hex) api?.win?.setBackground(hex);
 }
 
+/* ══ Actualización ═══════════════════════════════════════════════════════════
+   La descarga la maneja el proceso principal (src/update.cjs) y avisa recién
+   cuando el instalador ya está bajado. Acá solo se ofrece la decisión, con un
+   toast propio: nada de diálogos nativos.
+
+   Sin duración: se queda hasta que decidas. Un aviso que se va solo a los
+   cuatro segundos no es una decisión, y si lo ignorás no perdés nada — la
+   versión nueva se instala igual la próxima vez que cierres la app. */
+function avisarUpdate(info) {
+  if (!info?.version) return;
+  Toast.show({
+    title: `Mnemus ${info.version} está lista`,
+    text: 'Se instala sola al cerrar la app. O reiniciá ahora y la usás ya.',
+    icon: 'download',
+    duration: 0,
+    actions: [
+      { label: 'Después' },
+      { label: 'Reiniciar', variant: 'primary', onSelect: () => api.update.install() },
+    ],
+  });
+}
+
+async function wireUpdates() {
+  if (!api?.update) return;                    // build viejo del preload
+  api.update.onReady(avisarUpdate);
+  // Y el que ya estaba listo antes de que esta ventana existiera (ver la
+  // trampa 3 de src/update.cjs).
+  avisarUpdate(await api.update.pending().catch(() => null));
+}
+
 /* ══ Arranque ════════════════════════════════════════════════════════════════ */
 
 async function boot() {
@@ -1074,6 +1104,7 @@ async function boot() {
   updateChrome();
   Router.onChange(updateChrome);
   Router.go('inicio');
+  wireUpdates();
 
   raf2(() => {
     const splash = document.getElementById('boot-splash');

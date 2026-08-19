@@ -35,6 +35,7 @@ const { app, BrowserWindow, ipcMain, screen, shell } = require('electron');
 const path = require('path');
 const ipc = require('./src/ipc.cjs');
 const store = require('./src/store.cjs');
+const update = require('./src/update.cjs');
 
 /* Color base de arranque. Tiene que coincidir con --op-bg de tokens.css.
    Como --op-bg es oklch y Electron solo entiende hex, el renderer se lo vuelve
@@ -178,6 +179,9 @@ ipcMain.on('win:set-bg', (_e, hex) => {
 
 app.whenReady().then(async () => {
   ipc.register();
+  // La ventana se pasa como getter y no como valor: cuando esto corre todavía
+  // no existe, y además se reemplaza si se cierra y se vuelve a abrir.
+  update.register(() => win);
   createWindow(await loadWindowState());
 });
 

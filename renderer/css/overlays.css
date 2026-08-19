@@ -218,6 +218,15 @@
 .op-toast__main { flex: 1 1 auto; min-width: 0; }
 .op-toast__title { font-size: var(--op-fs-12); font-weight: var(--op-w-medium); color: var(--op-text); }
 .op-toast__text { font-size: var(--op-fs-11); color: var(--op-text-3); margin-top: 2px; line-height: var(--op-lh); user-select: text; }
+/* Las acciones del toast: abajo y a la derecha, como el pie de un modal. Es
+   la misma gramática — un aviso que ofrece algo es un diálogo chiquito. */
+.op-toast__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--op-2);
+  margin-top: var(--op-3);
+}
+.op-toast__actions .op-btn { flex: 0 0 auto; }
 .op-toast--error > .op-icon { color: var(--op-danger); }
 .op-toast--error { box-shadow: inset 0 1px 0 var(--op-edge-lit), inset 0 0 0 1px var(--op-danger-ring), var(--op-e4); }
 /* La barra de vida: se consume sola y muestra cuánto le queda. */
