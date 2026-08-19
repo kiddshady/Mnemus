@@ -53,6 +53,13 @@ contextBridge.exposeInMainWorld('opal', {
     },
   },
 
+  /** Importar y exportar. La ruta la elige el usuario en el diálogo del
+      sistema: acá no hay forma de nombrar un archivo a mano. */
+  archivo: {
+    guardarJSON: (nombreSugerido, data) => call('file:save-json', nombreSugerido, data),
+    abrirJSON: () => call('file:open-json'),
+  },
+
   /** Documento suelto: un borrador, un caché, el último estado de la UI. */
   doc: {
     read: (name, fallback = null) => call('doc:read', name, fallback),

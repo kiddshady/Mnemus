@@ -29,6 +29,10 @@ import {
   tipoDe, opcionesDe, esInteractiva, indiceCorrecto, letra, gradoSugerido,
   validar as validarFicha, normalizar as normalizarFicha,
 } from './ficha.js';
+import {
+  empaquetar, desempaquetar, nombreArchivo,
+  validar as validarPaquete, resumen as resumenPaquete,
+} from './intercambio.js';
 
 const api = window.opal;
 const mazosCol = api.col('mazos');
@@ -291,7 +295,10 @@ function viewMazos() {
   paint(head({
     title: 'Mazos',
     sub: plural(S.mazos.length, 'mazo') + ' · ' + plural(S.fichas.length, 'ficha'),
-    actions: '<button class="op-btn op-btn--primary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Nuevo mazo</button>',
+    actions: `
+      <button class="op-btn op-btn--primary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Nuevo mazo</button>
+      <button class="op-btn op-btn--secondary op-flashable" data-action="importar"><i data-icon="download"></i> Importar</button>
+      ${S.mazos.length ? '<button class="op-iconbtn" data-action="exportar-todo" data-tip="Exportar todos los mazos"><i data-icon="upload"></i></button>' : ''}`,
   }) + (S.mazos.length
     ? `<div class="op-scroll op-grow">
          <div class="op-list">${S.mazos.map(rowMazo).join('')}</div>
@@ -300,8 +307,10 @@ function viewMazos() {
     : empty({
       icon: 'mnemus',
       title: 'No hay mazos',
-      text: 'Cada mazo es una carpeta de fichas JSON en tu disco: legibles, versionables, tuyas.',
-      actions: '<button class="op-btn op-btn--secondary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Crear el primero</button>',
+      text: 'Cada mazo es una carpeta de fichas JSON en tu disco: legibles, versionables, tuyas. Si alguien te pasó un mazo, importalo acá.',
+      actions: `
+        <button class="op-btn op-btn--secondary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Crear el primero</button>
+        <button class="op-btn op-btn--ghost op-flashable" data-action="importar"><i data-icon="download"></i> Importar uno</button>`,
     })));
 }
 
@@ -880,11 +889,146 @@ Router.define({
 
 /* ══ Menús de contexto ═══════════════════════════════════════════════════════ */
 
+/* ══ Importar y exportar ═════════════════════════════════════════════════════
+   Un mazo que se puede mandar por chat. El formato vive en intercambio.js;
+   acá está el ir y venir con el disco y lo que se le pregunta al usuario. */
+
+async function exportarMazos(mazos) {
+  if (!mazos.length) {
+    Toast.error('No hay nada para exportar', 'Creá un mazo primero.');
+    return;
+  }
+  await attempt(async () => {
+    const paquete = empaquetar(mazos, S.fichas, { app: S.info?.version || null });
+    const ruta = await api.archivo.guardarJSON(nombreArchivo(mazos), paquete);
+    if (!ruta) return;                                  // canceló el diálogo
+    const fichas = paquete.mazos.reduce((n, m) => n + m.fichas.length, 0);
+    Toast.show({
+      title: 'Mazo exportado',
+      text: `${plural(fichas, 'ficha')} en un archivo que podés mandar por donde quieras.`,
+      icon: 'upload',
+      duration: 5200,
+    });
+  }, { errorTitle: 'No se pudo exportar' });
+}
+
+/**
+ * Guarda un paquete ya validado. Los ids los asigna ESTE lado siempre: los
+ * del origen no significan nada acá, y respetarlos haría que importar dos
+ * veces el mismo archivo se pisara a sí mismo.
+ *
+ * Escribe con las colecciones directo y recarga UNA vez al final. Pasar por
+ * saveFicha() repintaría el chrome por cada ficha: con un mazo de cien, son
+ * cien renders para mostrar un número que solo importa al terminar.
+ */
+async function importarPaquete(data, conProgreso) {
+  const entrantes = desempaquetar(data, { conProgreso });
+
+  let nMazo = Number((await mazosCol.nextId('m')).slice(2));
+  let nFicha = Number((await fichasCol.nextId('f')).slice(2));
+  const ahora = Date.now();
+  let total = 0;
+
+  for (const entrante of entrantes) {
+    const mazoId = `m-${String(nMazo++).padStart(4, '0')}`;
+    await mazosCol.save({ id: mazoId, name: entrante.name, createdAt: ahora, updatedAt: ahora });
+    for (const [i, ficha] of entrante.fichas.entries()) {
+      const id = `f-${String(nFicha++).padStart(4, '0')}`;
+      await fichasCol.save({
+        ...ficha,
+        id,
+        mazo: mazoId,
+        createdAt: ahora + i,          // conserva el orden del archivo en la cola
+        updatedAt: ahora - i,          // y en la lista del mazo
+      });
+      total++;
+    }
+  }
+
+  await loadAll();
+  registerCommands();
+  updateChrome();
+  Router.refresh();
+  return { mazos: entrantes.length, fichas: total };
+}
+
+async function importarModal() {
+  const abierto = await attempt(() => api.archivo.abrirJSON(), { errorTitle: 'No se pudo abrir el archivo' });
+  if (!abierto) return;                                 // canceló, o falló y ya se avisó
+
+  const problema = validarPaquete(abierto.data);
+  if (problema) {
+    Toast.error('Ese archivo no se puede importar', problema);
+    return;
+  }
+
+  const r = resumenPaquete(abierto.data);
+  const tipos = Object.entries(r.porTipo)
+    .map(([t, n]) => `${n} ${ETIQUETA_TIPO[t].toLowerCase()}`)
+    .join(' · ');
+
+  const body = document.createElement('div');
+  body.className = 'op-col';
+  body.style.gap = '14px';
+  body.innerHTML = `
+    <div class="op-list">
+      ${r.nombres.map((n) => `
+        <div class="op-listitem">
+          ${Icons.svg('layers', 'op-icon--sm')}
+          <div class="op-listitem__main"><span class="op-listitem__title">${esc(n)}</span></div>
+        </div>`).join('')}
+    </div>
+    <div class="op-kv">
+      <span class="op-kv__k">Fichas</span><span class="op-kv__v">${r.fichas}</span>
+      <span class="op-kv__k">Tipos</span><span class="op-kv__v">${esc(tipos)}</span>
+    </div>
+    ${r.conProgreso ? `
+      <label class="op-row" style="gap:10px;align-items:flex-start">
+        <button class="op-check" id="i-progreso"><i data-icon="check"></i></button>
+        <span>
+          <span class="op-label">Conservar el historial de repaso</span>
+          <span class="op-field__hint" style="display:block">
+            Dejalo apagado si el mazo te lo pasó otra persona: su historial dice lo que
+            recuerda ELLA. Prendelo solo si estás moviendo tus propios mazos.
+          </span>
+        </span>
+      </label>` : ''}`;
+
+  Icons.mount(body);
+  const check = body.querySelector('#i-progreso');
+  check?.addEventListener('click', () => check.classList.toggle('is-on'));
+
+  const res = await Modal.show({
+    title: r.mazos === 1 ? 'Importar este mazo' : `Importar ${r.mazos} mazos`,
+    sub: abierto.path.split(/[\\/]/).pop(),
+    body,
+    width: 520,
+    actions: [
+      { label: 'Cancelar', value: null },
+      { label: 'Importar', value: true, variant: 'primary', autofocus: true },
+    ],
+  });
+  if (!res) return;
+
+  const conProgreso = !!check?.classList.contains('is-on');
+  const hecho = await attempt(() => importarPaquete(abierto.data, conProgreso),
+    { errorTitle: 'No se pudo importar' });
+  if (!hecho) return;
+
+  Toast.show({
+    title: 'Importado',
+    text: `${plural(hecho.fichas, 'ficha')} en ${plural(hecho.mazos, 'mazo')}${conProgreso ? ', con su historial' : ', listas para repasar desde cero'}.`,
+    icon: 'download',
+    duration: 5200,
+  });
+}
+
 const MENUS = {
   mazo: (id) => [
     { label: 'Abrir', icon: 'external', onSelect: () => Router.go('mazo', id) },
     { label: 'Repasar', icon: 'zap', onSelect: () => iniciarSesion(id) },
     { label: 'Renombrar…', icon: 'edit', onSelect: () => renombrarMazo(id) },
+    { label: 'Exportar…', icon: 'upload', onSelect: () => exportarMazos([mazo(id)].filter(Boolean)) },
     { label: 'Copiar id', icon: 'copy', onSelect: () => copy(id) },
     { sep: true },
     { label: 'Eliminar', icon: 'trash', danger: true, onSelect: () => eliminarMazo(id) },
@@ -944,6 +1088,8 @@ function wireShell() {
       if (a === 'nueva-ficha') fichaModal(arg || Router.param);
       if (a === 'editar-ficha') fichaModal(null, arg);
       if (a === 'repasar') iniciarSesion(arg);
+      if (a === 'importar') importarModal();
+      if (a === 'exportar-todo') exportarMazos(S.mazos);
     }
   });
 
@@ -992,6 +1138,14 @@ function registerCommands() {
       run: () => iniciarSesion(m.id),
     })),
     { id: 'nuevo-mazo', group: 'Crear', icon: 'plus', label: 'Nuevo mazo', run: nuevoMazoModal },
+    { id: 'importar', group: 'Crear', icon: 'download', label: 'Importar un mazo…', run: importarModal },
+    ...(S.mazos.length ? [
+      { id: 'exportar-todo', group: 'Compartir', icon: 'upload', label: 'Exportar todos los mazos…', run: () => exportarMazos(S.mazos) },
+      ...S.mazos.map((m) => ({
+        id: `exp-${m.id}`, group: 'Compartir', icon: 'upload', label: `Exportar ${m.name}…`, hint: m.id,
+        run: () => exportarMazos([m]),
+      })),
+    ] : []),
     { id: 'nav-inicio', group: 'Ir a', icon: 'home', label: 'Inicio', run: () => Router.go('inicio') },
     { id: 'nav-mazos', group: 'Ir a', icon: 'layers', label: 'Mazos', run: () => Router.go('mazos') },
     { id: 'nav-piezas', group: 'Ir a', icon: 'grid', label: 'Piezas', run: () => Router.go('piezas') },

@@ -23,6 +23,19 @@ calificación —resaltando el botón y enfocándolo, para que Enter lo tome— 
 califican por vos: acertar adivinando entre dos alternativas no merece el mismo
 factor de facilidad que saberlo, y SM-2 se envenena si el *ease* sube por suerte.
 
+## Pasar un mazo a otra persona
+
+Desde el menú de un mazo, **Exportar…**; o el botón de exportar en la vista Mazos
+para llevarte todos de una. Sale un `.json` que se puede mandar por donde sea.
+Del otro lado, **Importar** en la vista Mazos.
+
+El archivo lleva el progreso de repaso, pero al importar viene **apagado**: si el
+mazo te lo pasó otra persona, su historial dice lo que recuerda ella, no vos.
+Prendelo solo cuando estés moviendo tus propios mazos entre dos máquinas.
+
+Los ids nunca viajan. Los asigna quien importa, así que importar dos veces el
+mismo archivo no pisa nada, y un mazo de afuera no puede chocar con los tuyos.
+
 ## Correr y construir
 
 ```

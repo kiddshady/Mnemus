@@ -10,7 +10,7 @@
    una cosa y qué QUEDÓ en disco, no solo si existe**.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -73,6 +73,10 @@ app.whenReady().then(async () => {
 
   const mazoTest = await js(`window.opal.col('mazos').list().then(l => l.find(m => m.name === 'Humo') || null)`);
   const mazoId = mazoTest?.id;
+  // Todo mazo que cree el test se anota acá para borrarlo al final: los datos
+  // son del usuario, y un test que deja basura adentro no se puede correr dos
+  // veces sin ensuciar la app de verdad.
+  const creados = mazoId ? [mazoId] : [];
   ok('el mazo quedó en disco con id asignado', !!mazoId, JSON.stringify(mazoTest));
   ok('el router saltó a su detalle', (await js(`document.querySelector('.op-viewhead__title')?.textContent`)) === 'Humo');
   ok('la titlebar muestra el contexto', (await js(`document.getElementById('titlebar-context').textContent.trim()`)) === 'Humo');
@@ -219,6 +223,81 @@ app.whenReady().then(async () => {
   const srsMc = await js(`window.opal.col('fichas').get(${JSON.stringify(mc.id)}).then(f => f.srs)`);
   ok('el olvido llegó al disco', srsMc?.lapses === 1 && srsMc?.reps === 0, JSON.stringify(srsMc));
   ok('y la ficha vuelve en la misma sesión', await js(`!!document.querySelector('.mn-ficha')`));
+
+  /* Un mazo que se manda por chat. Lo único que se reemplaza son los dos
+     diálogos NATIVOS de archivo —son de Electron, no código nuestro, y
+     bloquearían el test— por una ruta fija en el temp del sistema. Todo lo
+     demás es el camino de producción.
+
+     Lo que se mide es el VIAJE COMPLETO: un formato que pierde un campo en el
+     camino no da error, da un mazo silenciosamente incompleto del otro lado,
+     en la máquina de otra persona, donde nadie lo va a notar hasta que la
+     respuesta correcta esté mal. */
+  console.log('\n4-ter. Exportar e importar un mazo');
+  const archivo = path.join(app.getPath('temp'), 'mnemus-humo.test.json');
+  fs.rmSync(archivo, { force: true });
+  ipcMain.removeHandler('file:save-json');
+  ipcMain.removeHandler('file:open-json');
+  ipcMain.handle('file:save-json', (_e, _nombre, data) => {
+    fs.writeFileSync(archivo, JSON.stringify(data, null, 2), 'utf8');
+    return { ok: true, data: archivo };
+  });
+  ipcMain.handle('file:open-json', () => ({
+    ok: true, data: { path: archivo, data: JSON.parse(fs.readFileSync(archivo, 'utf8')) },
+  }));
+
+  await click('[data-view="mazos"]');
+  await sleep(700);
+  await click(`[data-open-mazo="${mazoId}"]`);
+  await sleep(700);
+  await click('[data-menu="mazo"]');
+  await sleep(500);
+  const exportarItem = await js(`(() => {
+    const it = [...document.querySelectorAll('.op-menuitem')].find(e => e.textContent.includes('Exportar'));
+    if (!it) return false; it.click(); return true; })()`);
+  ok('el menú del mazo ofrece exportar', exportarItem);
+  await sleep(1200);
+
+  ok('el archivo se escribió', fs.existsSync(archivo));
+  const paquete = fs.existsSync(archivo) ? JSON.parse(fs.readFileSync(archivo, 'utf8')) : null;
+  ok('declara formato y versión', paquete?.formato === 'mnemus/mazos' && paquete?.version === 1);
+  ok('trae el mazo con sus 2 fichas', paquete?.mazos?.[0]?.fichas?.length === 2, JSON.stringify(paquete?.mazos?.[0]?.fichas?.length));
+  ok('ninguna ficha lleva id: los asigna quien importa',
+    paquete?.mazos?.[0]?.fichas?.every((f) => !f.id));
+  ok('la de opción múltiple viajó entera',
+    paquete?.mazos?.[0]?.fichas?.some((f) => f.tipo === 'opcion' && f.opciones?.length === 4),
+    JSON.stringify(paquete?.mazos?.[0]?.fichas?.map((f) => f.tipo)));
+
+  const mazosAntes = await js(`window.opal.col('mazos').list().then(l => l.length)`);
+  // Importar vive en la vista Mazos; exportar dejó al router en el detalle.
+  await click('[data-view="mazos"]');
+  await sleep(700);
+  await click('[data-action="importar"]');
+  await sleep(1300);
+  ok('el modal de importar abre', await js(`!!document.querySelector('.op-modal')`));
+  ok('y dice qué está por entrar',
+    (await js(`document.querySelector('.op-modal')?.textContent || ''`)).includes('Humo'));
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1800);
+
+  const mazosDespues = await js(`window.opal.col('mazos').list()`);
+  ok('quedó un mazo más', mazosDespues.length === mazosAntes + 1, `${mazosAntes} → ${mazosDespues.length}`);
+  const importado = mazosDespues.find((m) => m.name === 'Humo' && m.id !== mazoId);
+  ok('con un id propio, distinto del original', !!importado, JSON.stringify(mazosDespues.map((m) => m.id)));
+
+  const fichasImportadas = await js(`window.opal.col('fichas').list()
+    .then(l => l.filter(f => f.mazo === ${JSON.stringify(importado?.id || '')}))`);
+  ok('con sus 2 fichas', fichasImportadas.length === 2, String(fichasImportadas.length));
+  ok('sin heredar los ids del origen', fichasImportadas.every((f) => f.id !== fichaTest.id));
+  ok('entran como nuevas, sin el historial ajeno',
+    fichasImportadas.every((f) => f.srs.reps === 0 && f.srs.lapses === 0));
+  const mcImportada = fichasImportadas.find((f) => f.tipo === 'opcion');
+  ok('la de opción múltiple conserva su respuesta correcta',
+    mcImportada?.opciones?.[mcImportada?.correcta] === 'la correcta',
+    JSON.stringify(mcImportada?.opciones));
+
+  if (importado) creados.push(importado.id);
+  fs.rmSync(archivo, { force: true });
 
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('[data-view="inicio"]');
@@ -549,12 +628,13 @@ app.whenReady().then(async () => {
   ok('::selection propia', reglas.seleccion);
   ok('focus ring propio (:focus-visible)', reglas.focus);
 
-  // El test no puede dejar basura en los datos: se lleva su mazo, sus fichas
-  // y el ajuste que tocó. La semilla queda — es de la app, no del test.
-  if (mazoId) {
-    const sucias = await js(`window.opal.col('fichas').list().then(l => l.filter(f => f.mazo === ${JSON.stringify(mazoId)}).map(f => f.id))`);
+  // El test no puede dejar basura en los datos: se lleva TODOS los mazos que
+  // creó (el suyo y el que importó), sus fichas y el ajuste que tocó. La
+  // semilla queda — es de la app, no del test.
+  for (const id of creados) {
+    const sucias = await js(`window.opal.col('fichas').list().then(l => l.filter(f => f.mazo === ${JSON.stringify(id)}).map(f => f.id))`);
     for (const fid of sucias) await js(`window.opal.col('fichas').remove(${JSON.stringify(fid)})`);
-    await js(`window.opal.col('mazos').remove(${JSON.stringify(mazoId)})`);
+    await js(`window.opal.col('mazos').remove(${JSON.stringify(id)})`);
   }
   await js(`window.opal.settings.save({ nuevasPorDia: 10 })`);
 
