@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Humo del renderer: monta ENGRAMA de verdad y la recorre.
+   Humo del renderer: monta MNEMUS de verdad y la recorre.
 
    Se corre con `npm run smoke` (necesita Electron, por eso no está en el
    `npm test`, que es node pelado).
@@ -109,8 +109,8 @@ app.whenReady().then(async () => {
 
   await click(`[data-action="repasar"][data-arg="${mazoId}"]`);
   await sleep(900);
-  ok('la sesión abre con la ficha', await js(`!!document.querySelector('.en-ficha')`));
-  ok('el frente se ve', (await js(`document.querySelector('.en-ficha__front')?.textContent.trim()`)) === '¿Humo?');
+  ok('la sesión abre con la ficha', await js(`!!document.querySelector('.mn-ficha')`));
+  ok('el frente se ve', (await js(`document.querySelector('.mn-ficha__front')?.textContent.trim()`)) === '¿Humo?');
 
   /* La garantía es ESTRUCTURAL, no cosmética: la respuesta ni siquiera está
      pintada antes de revelar (visibility:hidden). Un velo que solo tapa
@@ -147,7 +147,7 @@ app.whenReady().then(async () => {
   ok('la calificación llegó al disco: reps 1', srsTras?.reps === 1, JSON.stringify(srsTras));
   ok('con intervalo de 1 día', srsTras?.interval === 1);
   ok('y vence en el futuro', srsTras?.due > Date.now());
-  ok('la sesión terminó con su resumen', await js(`!!document.querySelector('.en-fin')`));
+  ok('la sesión terminó con su resumen', await js(`!!document.querySelector('.mn-fin')`));
 
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('[data-view="inicio"]');

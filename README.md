@@ -1,4 +1,4 @@
-# Engrama
+# Mnemus
 
 App de escritorio construida sobre [Opal](S:\tools\Opal).
 
@@ -22,4 +22,4 @@ la vitrina viva de todos los primitivos, dentro de la app en **Piezas**.
 3. **Las vistas.** `renderer/js/app.js` trae una app demo funcionando. Vaciá
    las vistas y dejá el arranque.
 4. **Los datos.** `src/store.cjs` declara los ajustes; `src/ipc.cjs`, qué
-   puede pedir el renderer. La carpeta de datos se puede mover con `ENGRAMA_DATA`.
+   puede pedir el renderer. La carpeta de datos se puede mover con `MNEMUS_DATA`.

@@ -19,7 +19,7 @@ let pass = 0; let fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FALLA ${n} ${x}`); } };
 
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'opal-store-'));
-process.env.ENGRAMA_DATA = DIR;
+process.env.MNEMUS_DATA = DIR;
 const store = require('../src/store.cjs');
 
 console.log('\n1. Escrituras simultáneas del mismo archivo');

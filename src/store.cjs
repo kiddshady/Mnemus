@@ -46,7 +46,7 @@ function defaultRoot() {
   return path.join(__dirname, '..', 'data');
 }
 
-const ROOT = process.env.ENGRAMA_DATA || defaultRoot();
+const ROOT = process.env.MNEMUS_DATA || defaultRoot();
 const SETTINGS_FILE = path.join(ROOT, 'settings.json');
 
 /* ── Ajustes de tu app ───────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ENGRAMA — repaso espaciado (SM-2)
+   MNEMUS — repaso espaciado (SM-2)
    El motor de la app: decide CUÁNDO volvés a ver cada ficha. Es SM-2 clásico,
    sin inventos — el algoritmo está probado por décadas de Anki/SuperMemo y
    cada desviación "intuitiva" que se le mete lo suele empeorar.

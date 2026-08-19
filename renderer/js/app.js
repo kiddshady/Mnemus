@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ENGRAMA — la app
+   MNEMUS — la app
    Flashcards con repaso espaciado (SM-2) sobre Opal. La estructura viene de
    la plantilla: un espejo en memoria de lo que hay en disco, vistas que
    pintan de ese espejo, y toda mutación pasa por los helpers de guardado.
@@ -26,7 +26,7 @@ const fichasCol = api.col('fichas');
 
 /* La marca y los símbolos del dominio. El set base no se edita: se extiende. */
 Icons.add({
-  engrama: '<path d="M1.8 10.5H4.6L6.4 3.2 8.2 12.4 9.6 10.5H14.2"/><circle cx="6.4" cy="3.2" r="1.6"/>',
+  mnemus: '<path d="M1.8 10.5H4.6L6.4 3.2 8.2 12.4 9.6 10.5H14.2"/><circle cx="6.4" cy="3.2" r="1.6"/>',
 });
 
 /* Las palabras del dominio sobre los estados del sistema. */
@@ -187,9 +187,9 @@ function viewInicio() {
           <div class="op-section__head"><span class="op-section__title">Mazos</span></div>
           <div class="op-list">${S.mazos.map(rowMazo).join('')}</div>
         </div>`
-      : `<div class="op-empty" style="margin:24px auto">${Icons.svg('engrama')}
+      : `<div class="op-empty" style="margin:24px auto">${Icons.svg('mnemus')}
           <div class="op-empty__title">Todavía no hay mazos</div>
-          <div class="op-empty__text">Un mazo agrupa fichas de un tema. Creá el primero, cargale preguntas, y Engrama decide cuándo te conviene volver a verlas.</div>
+          <div class="op-empty__text">Un mazo agrupa fichas de un tema. Creá el primero, cargale preguntas, y Mnemus decide cuándo te conviene volver a verlas.</div>
           <div class="op-row" style="margin-top:6px"><button class="op-btn op-btn--secondary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Crear el primero</button></div>
         </div>`}
       <div style="height:32px"></div>
@@ -234,7 +234,7 @@ function viewMazos() {
          <div style="height:32px"></div>
        </div>`
     : empty({
-      icon: 'engrama',
+      icon: 'mnemus',
       title: 'No hay mazos',
       text: 'Cada mazo es una carpeta de fichas JSON en tu disco: legibles, versionables, tuyas.',
       actions: '<button class="op-btn op-btn--secondary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Crear el primero</button>',
@@ -331,12 +331,12 @@ function viewRepaso(param) {
   if (ses.idx >= ses.cola.length) {
     S.sesion = null;
     paint(head({ title: 'Repaso' }) + `
-      <div class="en-repaso">
-        <div class="en-fin">
+      <div class="mn-repaso">
+        <div class="mn-fin">
           ${Icons.svg('check')}
           <div class="op-subtitle">Sesión terminada</div>
           <div class="op-meta">Lo repasado hoy vuelve justo antes de que se olvide.</div>
-          <div class="en-fin__cifras">
+          <div class="mn-fin__cifras">
             <div class="op-stat"><span class="op-stat__value">${ses.hechas}</span><span class="op-stat__label">Repasos</span></div>
             <div class="op-stat"><span class="op-stat__value">${ses.otraVez}</span><span class="op-stat__label">Otra vez</span></div>
           </div>
@@ -364,33 +364,33 @@ function viewRepaso(param) {
     sub: `${ses.idx + 1} de ${ses.cola.length}${ses.otraVez ? ` · ${ses.otraVez} otra vez` : ''}`,
     crumbs: m ? [{ label: 'Mazos', view: 'mazos' }, { label: m.name }] : undefined,
   }) + `
-    <div class="en-repaso">
-      <div class="en-progreso">
+    <div class="mn-repaso">
+      <div class="mn-progreso">
         <span class="op-meta op-num">${ses.idx + 1}/${ses.cola.length}</span>
         <div class="op-meter"><div class="op-meter__fill" style="--op-pct:${pct}%"></div></div>
         <span class="op-meta op-num">${ses.otraVez} otra vez</span>
       </div>
 
-      <div class="en-ficha">
-        <div class="en-ficha__zona"><div class="en-ficha__front op-copyable">${esc(f.front)}</div></div>
-        <div class="en-ficha__divisor"></div>
-        <div class="en-ficha__answer">
+      <div class="mn-ficha">
+        <div class="mn-ficha__zona"><div class="mn-ficha__front op-copyable">${esc(f.front)}</div></div>
+        <div class="mn-ficha__divisor"></div>
+        <div class="mn-ficha__answer">
           <!-- La respuesta nace SIN PINTAR (visibility:hidden), no solo tapada:
                así ningún capricho del compositor puede dejarla legible antes
                de tiempo. El des-esmerilado real pasa al revelar: se pinta el
                texto debajo del velo y el velo se disuelve encima. -->
-          <div class="en-ficha__back op-copyable" id="back" style="visibility:hidden">${esc(f.back)}</div>
-          <button class="en-velo" id="velo" aria-label="Revelar la respuesta">
-            <span class="en-velo__hint"><span class="op-kbd">Espacio</span> revelar</span>
+          <div class="mn-ficha__back op-copyable" id="back" style="visibility:hidden">${esc(f.back)}</div>
+          <button class="mn-velo" id="velo" aria-label="Revelar la respuesta">
+            <span class="mn-velo__hint"><span class="op-kbd">Espacio</span> revelar</span>
           </button>
         </div>
       </div>
 
-      <div class="en-calif" id="calif">
+      <div class="mn-calif" id="calif">
         ${grados.map(([id, label, q], i) => `
-          <button class="op-btn op-btn--secondary op-flashable en-calif__${id}" data-grado="${q}">
-            <span class="en-calif__label">${label}</span>
-            <span class="en-calif__int">${id === 'otra' ? 'vuelve hoy' : diasTxt(simular(f.srs, q))} · ${i + 1}</span>
+          <button class="op-btn op-btn--secondary op-flashable mn-calif__${id}" data-grado="${q}">
+            <span class="mn-calif__label">${label}</span>
+            <span class="mn-calif__int">${id === 'otra' ? 'vuelve hoy' : diasTxt(simular(f.srs, q))} · ${i + 1}</span>
           </button>`).join('')}
       </div>
     </div>`);
@@ -745,7 +745,7 @@ function updateChrome() {
   const ctx = document.getElementById('titlebar-context');
   if (!ctx) return;
   if (Router.name === 'repaso' && S.sesion) {
-    ctx.innerHTML = `${Icons.svg('engrama', 'op-icon--sm')}<span>${S.sesion.idx + 1} de ${S.sesion.cola.length}</span>`;
+    ctx.innerHTML = `${Icons.svg('mnemus', 'op-icon--sm')}<span>${S.sesion.idx + 1} de ${S.sesion.cola.length}</span>`;
   } else if (Router.name === 'mazo') {
     const m = mazo(Router.param);
     ctx.innerHTML = m ? `${Icons.svg('layers', 'op-icon--sm')}<span>${esc(m.name)}</span>` : '';
@@ -807,7 +807,7 @@ async function seed() {
   Toast.show({
     title: 'Mazo de ejemplo listo',
     text: 'Farmacología I trae 8 fichas para probar el repaso. Es tuyo: editalo o borralo.',
-    icon: 'engrama',
+    icon: 'mnemus',
     duration: 6000,
   });
 }
