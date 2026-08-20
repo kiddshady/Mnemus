@@ -109,6 +109,15 @@
 .op-iconbtn:hover { background: var(--op-wash-1); color: var(--op-text); }
 .op-iconbtn:active { transform: scale(.92); background: var(--op-wash-2); }
 .op-iconbtn.is-active { background: var(--op-wash-2); color: var(--op-text); }
+/* Prendido = tallado, el mismo idioma que el check y el switch: pozo, canto
+   vivo, y el ícono en luz plena. Es otra cosa que `is-active` — ese marca
+   dónde estás parado; este, que algo quedó encendido. */
+.op-iconbtn.is-on {
+  background: var(--op-deep);
+  color: var(--op-text);
+  box-shadow: inset 0 0 0 1px var(--op-rim);
+}
+.op-iconbtn.is-on:hover { background: var(--op-deep-2); box-shadow: inset 0 0 0 1px var(--op-rim-2); }
 .op-iconbtn--sm { width: 22px; height: 22px; }
 .op-iconbtn--sm .op-icon { width: 13px; height: 13px; }
 

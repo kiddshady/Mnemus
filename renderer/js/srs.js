@@ -77,23 +77,68 @@ export function simular(srs, q, now = Date.now()) {
 }
 
 /**
+ * El orden natural de la cola, como comparador: lo vencido antes que lo nuevo,
+ * y adentro de cada grupo lo más urgente arriba — la deuda más vieja primero,
+ * el material nuevo en el orden en que lo cargaste.
+ *
+ * Vive suelto porque la sesión también lo necesita: al apagar el modo azaroso
+ * en el medio del repaso hay que devolverle este orden a lo que falta, sin
+ * volver a armar la cola desde cero (ver `barajar`).
+ */
+export function porPrioridad(a, b) {
+  const na = esNueva(a.srs);
+  const nb = esNueva(b.srs);
+  if (na !== nb) return na ? 1 : -1;
+  if (na) return (a.createdAt || 0) - (b.createdAt || 0);
+  return a.srs.due - b.srs.due;
+}
+
+/**
+ * Devuelve una COPIA barajada — Fisher-Yates, que es el único shuffle que
+ * reparte parejo. (El `sort(() => Math.random() - .5)` que se ve por ahí no:
+ * el comparador incoherente le rompe el invariante al algoritmo de orden y
+ * las permutaciones salen sesgadas.)
+ *
+ * `rand` se inyecta para poder testearlo: con una fuente predecible el
+ * resultado es exacto y deja de ser "mirá, parece random".
+ */
+export function barajar(lista, rand = Math.random) {
+  const a = [...lista];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
  * Arma la cola de una sesión: vencidas primero (la más atrasada arriba) y
  * después nuevas hasta el cupo diario. Las nuevas van al final a propósito:
  * lo que ya está en riesgo de olvidarse le gana a lo que todavía no entró.
+ *
+ * Con `azar`, la cola se baraja ENTERA después de armarse — vencidas y nuevas
+ * mezcladas. El cupo y el filtro de qué entra no cambian: el azar decide el
+ * orden, nunca el contenido. Sirve contra el efecto de orden (recordar la
+ * respuesta porque venía después de la otra, no porque la sepas) al precio de
+ * perder la prioridad: si cortás la sesión a la mitad, lo que quede sin
+ * repasar es un recorte al azar y no lo menos urgente.
  */
-export function armarCola(fichas, { nuevasPorDia = 10, now = Date.now() } = {}) {
+export function armarCola(fichas, { nuevasPorDia = 10, azar = false, rand, now = Date.now() } = {}) {
   const hasta = finDeHoy(now);
   const vencidas = fichas
     .filter((f) => !esNueva(f.srs) && vencida(f.srs, hasta))
-    .sort((a, b) => a.srs.due - b.srs.due);
+    .sort(porPrioridad);
   const nuevas = fichas
     .filter((f) => esNueva(f.srs))
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .sort(porPrioridad)
     .slice(0, Math.max(0, nuevasPorDia));
-  return [...vencidas, ...nuevas];
+  const cola = [...vencidas, ...nuevas];
+  return azar ? barajar(cola, rand) : cola;
 }
 
-/** Resumen para el inicio y la statusbar: cuántas hay para hoy. */
+/** Resumen para el inicio y la statusbar: cuántas hay para hoy. El orden no le
+    importa a un número, así que nunca baraja — es la misma cuenta con azar o
+    sin él, y este se llama en cada repintado del chrome. */
 export function paraHoy(fichas, opts) {
-  return armarCola(fichas, opts).length;
+  return armarCola(fichas, { ...opts, azar: false }).length;
 }

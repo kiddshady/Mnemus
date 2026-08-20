@@ -134,14 +134,31 @@ app.whenReady().then(async () => {
   })()`);
   ok('la respuesta NI SIQUIERA está pintada todavía', velo?.backSinPintar, JSON.stringify(velo));
   ok('el velo cubre su zona entera', velo?.cubre);
-  ok('y es vidrio (blur en el computado)', /blur\(/.test(velo?.vidrio || ''), String(velo?.vidrio));
   ok('la calificación todavía no se ofrece', velo?.califOculta);
+  /* Y todavía NO es vidrio: no hay nada abajo que esmerilar, y el blur puesto
+     de más es justo lo que destellaba al entrar (ver 4-quinquies). */
+  ok('todavía no gasta vidrio: no hay qué esmerilar', !/blur\(/.test(velo?.vidrio || ''), String(velo?.vidrio));
 
-  await click('#velo');
+  /* El click y la lectura, en la MISMA vuelta: el velo se va por animación, así
+     que después de un sleep ya no existe y no se puede mirar. Lo que importa es
+     que las tres cosas caigan JUNTAS — respuesta pintada, vidrio puesto, velo
+     saliendo. Si el vidrio llegara un cuadro tarde, la respuesta se leería
+     nítida por un instante y el esmerilado sería decorativo. */
+  const alRevelar = await js(`(() => {
+    const v = document.getElementById('velo');
+    v.click();
+    return {
+      estado: v.dataset.state,
+      vidrio: getComputedStyle(v).backdropFilter,
+      back: getComputedStyle(document.getElementById('back')).visibility,
+    };
+  })()`);
+  ok('al revelar, la respuesta se pinta', alRevelar?.back === 'visible', JSON.stringify(alRevelar));
+  ok('el velo se pone el vidrio en ese mismo cuadro', /blur\(/.test(alRevelar?.vidrio || ''), String(alRevelar?.vidrio));
+  ok('y arranca a irse', alRevelar?.estado === 'closing', JSON.stringify(alRevelar));
+
   await sleep(600);
-  ok('revelar pinta la respuesta',
-    await js(`getComputedStyle(document.getElementById('back')).visibility === 'visible'`));
-  ok('y saca el velo del DOM', !(await js(`!!document.getElementById('velo')`)));
+  ok('el velo termina de salir del DOM', !(await js(`!!document.getElementById('velo')`)));
   ok('y la calificación aflora', await js(`document.getElementById('calif').classList.contains('is-on')`));
 
   await click('[data-grado="4"]');   // «Bien»
@@ -224,6 +241,134 @@ app.whenReady().then(async () => {
   ok('el olvido llegó al disco', srsMc?.lapses === 1 && srsMc?.reps === 0, JSON.stringify(srsMc));
   ok('y la ficha vuelve en la misma sesión', await js(`!!document.querySelector('.mn-ficha')`));
 
+  /* El interruptor del azar. Lo que se mide no es que el botón exista, sino la
+     promesa que lo hace usable en el medio de una ficha: prenderlo NO repinta
+     la vista. viewRepaso dibuja siempre con el velo puesto, así que un refresh
+     inocente acá te vuelve a tapar la respuesta que estabas leyendo.
+
+     El test es simétrico —lee el estado, lo da vuelta, lo devuelve— porque
+     corre sobre el directorio de datos REAL: no puede asumir cómo lo tiene
+     configurado el que lo corre, ni dejárselo cambiado. */
+  console.log('\n4-ter. El modo azaroso no te tapa la respuesta');
+  const antesAzar = await js(`window.opal.settings.get().then(s => !!s.azar)`);
+  ok('el repaso ofrece el interruptor', await js(`!!document.getElementById('btn-azar')`));
+  ok('y arranca reflejando el ajuste guardado',
+    (await js(`document.getElementById('btn-azar').classList.contains('is-on')`)) === antesAzar);
+
+  await click('#velo');
+  await sleep(600);
+  const frenteAntes = await js(`document.querySelector('.mn-ficha__front')?.textContent`);
+  const contadorAntes = await js(`document.querySelector('.mn-progreso .op-num')?.textContent`);
+  ok('la respuesta está destapada antes de tocar nada',
+    (await js(`getComputedStyle(document.getElementById('back')).visibility`)) === 'visible');
+
+  await click('#btn-azar');
+  await sleep(900);
+  const trasAzar = await js(`JSON.stringify({
+    on: document.getElementById('btn-azar').classList.contains('is-on'),
+    presionado: document.getElementById('btn-azar').getAttribute('aria-pressed'),
+    velo: !!document.getElementById('velo'),
+    back: getComputedStyle(document.getElementById('back')).visibility,
+    frente: document.querySelector('.mn-ficha__front')?.textContent,
+    contador: document.querySelector('.mn-progreso .op-num')?.textContent,
+  })`);
+  const az = JSON.parse(trasAzar);
+  ok('el botón cambia de estado', az.on === !antesAzar, trasAzar);
+  ok('y lo dice también para quien no lo ve', az.presionado === String(!antesAzar), trasAzar);
+  ok('la ficha que estabas mirando no se movió', az.frente === frenteAntes, `${az.frente} ≠ ${frenteAntes}`);
+  ok('ni el contador de la sesión', az.contador === contadorAntes, `${az.contador} ≠ ${contadorAntes}`);
+  ok('y la respuesta destapada SIGUE destapada', az.back === 'visible' && !az.velo, trasAzar);
+  ok('el ajuste llegó al disco',
+    (await js(`window.opal.settings.get().then(s => !!s.azar)`)) === !antesAzar);
+
+  await click('#btn-azar');
+  await sleep(900);
+  ok('y darlo vuelta de nuevo lo deja como estaba',
+    (await js(`window.opal.settings.get().then(s => !!s.azar)`)) === antesAzar);
+
+  /* El único test del archivo que mira PÍXELES de una animación, y tiene que
+     ser así: hubo un destello que no existía en el DOM. Los estilos computados
+     eran idénticos de punta a punta —mismo background, mismo backdrop-filter,
+     misma opacidad— y aun así la zona del velo pintaba a 65 de brillo durante
+     la entrada y caía a 53 de golpe al terminar.
+
+     La causa: mientras `.op-view` retiene su animación de opacidad, la vista es
+     frontera de backdrop, y el velo pasa a muestrear la vista aislada en vez de
+     la página. Ahí la ficha —blanco translúcido— se cuenta dos veces. Ninguna
+     aserción sobre el DOM lo ve; el compositor no se declara. Por eso se mide
+     el píxel. */
+  console.log('\n4-quater. La primera ficha entra sin destello');
+  await click('[data-view="mazos"]');
+  await sleep(600);
+  await click(`[data-open-mazo="${mazoId}"]`);
+  await sleep(700);
+  await click(`[data-action="repasar"][data-arg="${mazoId}"]`);
+  await sleep(1300);
+
+  /* El punto se elige LISO a propósito: ni el centro (ahí vive el hint) ni el
+     borde (ahí vive el canto iluminado). Y tiene que aguantar los 8 px que la
+     vista sube al entrar — un punto pegado a una letra mide el texto
+     deslizándose, no el brillo del velo, y da una serie que parece un bug. */
+  const zona = await js(`(() => {
+    const v = document.getElementById('velo');
+    if (!v) return null;
+    const r = v.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width * 0.18), y: Math.round(r.top + r.height * 0.3) };
+  })()`);
+  ok('hay un velo montado para medir', !!zona, JSON.stringify(zona));
+
+  // Salir y volver a entrar: la animación de vista solo corre al NAVEGAR, y es
+  // la que abre la frontera de backdrop. Sin navegación no hay nada que medir.
+  await click('[data-view="inicio"]');
+  await sleep(900);
+  await click('[data-view="mazos"]');
+  await sleep(600);
+  await click(`[data-open-mazo="${mazoId}"]`);
+  await sleep(700);
+  await click(`[data-action="repasar"][data-arg="${mazoId}"]`);
+
+  // Se promedia un parche chico en vez de un píxel: el ruido de un solo píxel
+  // sobre una superficie translúcida da falsos positivos de 1 o 2 puntos.
+  const brillos = [];
+  for (let i = 0; i < 14 && zona; i++) {
+    const b = (await win.webContents.capturePage({ x: zona.x, y: zona.y, width: 8, height: 8 })).toBitmap();
+    let suma = 0; let n = 0;
+    for (let p = 0; p < b.length; p += 4) { suma += b[p + 2]; n++; }
+    brillos.push(Math.round(suma / n));
+    await sleep(45);
+  }
+  const asentado = brillos[brillos.length - 1];
+  // Los primeros cuadros son el fundido de entrada, que SÍ tiene que subir.
+  const pico = Math.max(...brillos.slice(3));
+  ok('la zona del velo no pasa de largo su brillo final', pico - asentado <= 2,
+    `pico ${pico} contra final ${asentado} — [${brillos.join(' ')}]`);
+  ok('y llega subiendo, sin caer de golpe después', brillos[3] <= asentado + 2,
+    `[${brillos.join(' ')}]`);
+
+  /* Cortar por la mitad. Lo que se mide no es que el botón navegue, sino que
+     irse NO toque el disco: cada calificación ya se guardó cuando la diste, y
+     abandonar no puede deshacer ninguna. */
+  console.log('\n4-quinquies. Terminar la sesión a mitad de camino');
+  ok('el repaso ofrece la salida', await js(`!!document.querySelector('[data-action="terminar"]')`));
+  const srsAntesDeSalir = await js(`window.opal.col('fichas')
+    .get(${JSON.stringify(mc.id)}).then(f => JSON.stringify(f.srs))`);
+
+  await click('[data-action="terminar"]');
+  await sleep(1000);
+  ok('salir deja la vista del repaso', !(await js(`!!document.querySelector('.mn-ficha')`)));
+  ok('y te devuelve al mazo del que saliste',
+    await js(`!!document.querySelector('[data-action="nueva-ficha"][data-arg=${JSON.stringify(mazoId)}]')`));
+  ok('sin tocar lo que ya estaba guardado',
+    (await js(`window.opal.col('fichas').get(${JSON.stringify(mc.id)}).then(f => JSON.stringify(f.srs))`))
+      === srsAntesDeSalir);
+
+  await click(`[data-action="repasar"][data-arg="${mazoId}"]`);
+  await sleep(1000);
+  ok('se puede volver a entrar como si nada', await js(`!!document.querySelector('.mn-ficha')`));
+  escape();
+  await sleep(1000);
+  ok('y Escape es la misma puerta', !(await js(`!!document.querySelector('.mn-ficha')`)));
+
   /* Un mazo que se manda por chat. Lo único que se reemplaza son los dos
      diálogos NATIVOS de archivo —son de Electron, no código nuestro, y
      bloquearían el test— por una ruta fija en el temp del sistema. Todo lo
@@ -233,7 +378,7 @@ app.whenReady().then(async () => {
      camino no da error, da un mazo silenciosamente incompleto del otro lado,
      en la máquina de otra persona, donde nadie lo va a notar hasta que la
      respuesta correcta esté mal. */
-  console.log('\n4-ter. Exportar e importar un mazo');
+  console.log('\n4-sexies. Exportar e importar un mazo');
   const archivo = path.join(app.getPath('temp'), 'mnemus-humo.test.json');
   fs.rmSync(archivo, { force: true });
   ipcMain.removeHandler('file:save-json');

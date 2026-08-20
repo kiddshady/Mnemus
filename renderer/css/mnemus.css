@@ -230,13 +230,26 @@
   display: grid;
   place-items: center;
   background: var(--op-s1);
-  backdrop-filter: var(--op-glass);
   box-shadow: inset 0 1px 0 var(--op-edge-lit);
   cursor: default;
   border: 0;
   animation: op-fade-in var(--op-t-3) var(--op-ease) both;
   transition: background-color var(--op-t-2) var(--op-ease-soft);
 }
+/* El vidrio se pone RECIÉN cuando hay algo abajo que esmerilar — o sea, en el
+   revelado. Antes de eso la respuesta ni siquiera está pintada
+   (visibility:hidden): el blur no tiene qué muestrear, no cambia un píxel
+   (medido: 53 contra 54 sobre 255) y encima cuesta una capa de GPU corriendo
+   todo el tiempo que estás leyendo la pregunta.
+
+   Y hay una razón más dura. Mientras `.op-view` retiene su animación de
+   opacidad, la vista es FRONTERA DE BACKDROP: el velo deja de muestrear la
+   página y muestrea la vista aislada, donde la ficha —que es blanco
+   translúcido— se cuenta DOS VECES. La zona del velo pinta a 65 de brillo en
+   vez de 53, y al terminar la animación cae de golpe. Eso era el destello que
+   se veía al abrir la primera ficha de cada sesión. Sin vidrio puesto durante
+   la entrada, no hay nada que contar dos veces. */
+.mn-velo.is-vidrio { backdrop-filter: var(--op-glass); }
 .mn-velo:hover { background: var(--op-s2); }
 .mn-velo[data-state='closing'] { animation: op-fade-out var(--op-t-2) var(--op-ease-in) both; }
 .mn-velo__hint {

@@ -60,6 +60,10 @@ const DEFAULT_SETTINGS = {
       entran siempre: el cupo protege de atragantarse de material nuevo, no
       de pagar las deudas. */
   nuevasPorDia: 10,
+  /** Barajar la cola en vez de repasarla por prioridad. Apagado por defecto:
+      el orden por urgencia es lo que hace que una sesión cortada a la mitad
+      igual haya servido. */
+  azar: false,
   ultimaVista: null,
 };
 

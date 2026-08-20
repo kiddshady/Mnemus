@@ -23,6 +23,37 @@ calificación —resaltando el botón y enfocándolo, para que Enter lo tome— 
 califican por vos: acertar adivinando entre dos alternativas no merece el mismo
 factor de facilidad que saberlo, y SM-2 se envenena si el *ease* sube por suerte.
 
+## La sesión de repaso
+
+Una ficha por vez. **Espacio** revela la respuesta, **1-4** califican, y las
+alternativas de una ficha interactiva se eligen con **1-6** antes de contestar
+(por eso se rotulan con letras: si también fueran números, «3» sería la opción C
+y «Bien» al mismo tiempo).
+
+| Tecla | Qué hace |
+|---|---|
+| **Espacio** | Revela la respuesta |
+| **1-4** | Califica: Otra vez · Difícil · Bien · Fácil |
+| **1-6** | Antes de contestar, elige alternativa |
+| **A** | Prende o apaga el modo azaroso |
+| **Esc** | Termina la sesión |
+
+**Terminar** no pregunta nada: cada calificación se escribió en el disco cuando
+la diste, así que salir no pierde nada. Lo único que se disuelve es la cola, y
+las que fallaste vencen ahora mismo — vuelven en la próxima.
+
+### El orden de la cola
+
+Por defecto sale primero lo más atrasado y las nuevas al final, de modo que una
+sesión cortada a la mitad igual haya pagado la deuda más urgente. El **modo
+azaroso** —el botón del repaso, la tecla `A`, o Ajustes → Repaso— baraja todo
+junto y te saca el vicio de recordar una respuesta porque venía después de otra.
+El azar decide el orden, nunca el contenido: el cupo diario de fichas nuevas y
+el filtro de qué entra no cambian.
+
+Prenderlo a mitad de sesión reordena solo lo que falta **después** de la ficha
+actual: la que estás mirando no se mueve.
+
 ## Pasar un mazo a otra persona
 
 Desde el menú de un mazo, **Exportar…**; o el botón de exportar en la vista Mazos

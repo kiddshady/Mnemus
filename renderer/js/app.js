@@ -23,7 +23,10 @@ import { initClickFlash, initScrollFades, raf2, countTo, exit, bindStepper, bind
 import { viewEl, esc, paint, head, empty, mark, setStateLabels, attempt, copy, colorToken } from './ui.js';
 import { relTime, plural } from './format.js';
 import { designHTML, wireDesign } from './design-view.js';
-import { DIA, GRADOS, srsNueva, esNueva, calificar, simular, armarCola, paraHoy, finDeHoy, vencida } from './srs.js';
+import {
+  DIA, GRADOS, srsNueva, esNueva, calificar, simular,
+  armarCola, barajar, porPrioridad, paraHoy, finDeHoy, vencida,
+} from './srs.js';
 import {
   TIPOS, ETIQUETA_TIPO, OPCIONES_VF, MIN_OPCIONES, MAX_OPCIONES,
   tipoDe, opcionesDe, esInteractiva, indiceCorrecto, letra, gradoSugerido,
@@ -41,6 +44,10 @@ const fichasCol = api.col('fichas');
 /* La marca y los símbolos del dominio. El set base no se edita: se extiende. */
 Icons.add({
   mnemus: '<path d="M1.8 10.5H4.6L6.4 3.2 8.2 12.4 9.6 10.5H14.2"/><circle cx="6.4" cy="3.2" r="1.6"/>',
+  /* Azar: los dos caminos que se cruzan. El de arriba pasa entero; el de abajo
+     se corta en el medio y por ese hueco se lee cuál pasa por encima. */
+  azar: '<path d="M2.7 13.3 13.8 2.2"/><path d="M10.7 2.2h3.1v3.1"/>'
+      + '<path d="M2.7 2.7 6 6"/><path d="M10 10l3.8 3.8"/><path d="M13.8 10.7v3.1h-3.1"/>',
 });
 
 /* Las palabras del dominio sobre los estados del sistema. */
@@ -128,13 +135,17 @@ function diasTxt(n) {
   return n === 1 ? '1 día' : `${n} días`;
 }
 
-const cupo = () => ({ nuevasPorDia: Number(S.settings.nuevasPorDia) || 0 });
+/** Las reglas con las que se arma una cola, leídas de los ajustes. */
+const reglas = () => ({
+  nuevasPorDia: Number(S.settings.nuevasPorDia) || 0,
+  azar: !!S.settings.azar,
+});
 
 /* ══ Sesión de repaso ════════════════════════════════════════════════════════ */
 
 function iniciarSesion(mazoId = null) {
   const pool = mazoId ? fichasDe(mazoId) : S.fichas;
-  const cola = armarCola(pool, cupo());
+  const cola = armarCola(pool, reglas());
   if (!cola.length) {
     Toast.show({ title: 'Nada para repasar', text: 'No hay fichas vencidas ni nuevas por hoy.', icon: 'check' });
     return;
@@ -142,6 +153,85 @@ function iniciarSesion(mazoId = null) {
   S.sesion = { mazoId, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false, elegida: null };
   // Si ya estás parado en la vista repaso, go() no repinta: refresh lo fuerza.
   Router.go('repaso', mazoId || 'todo') || Router.refresh();
+}
+
+/**
+ * Corta la sesión y te devuelve de donde saliste.
+ *
+ * No pregunta nada, y no es descuido: cada calificación ya se escribió en el
+ * disco al momento de darla (ver calificarActual), así que irse no pierde
+ * NADA. Lo único que se disuelve es la cola, que es material regenerable —
+ * las que fallaste vencen ahora mismo y vuelven en la próxima. Un «¿estás
+ * seguro?» sobre algo que no destruye nada es fricción disfrazada de cuidado.
+ *
+ * El toast no es una felicitación: es el recibo de lo que quedó guardado.
+ */
+function terminarSesion() {
+  const ses = S.sesion;
+  if (!ses) {
+    // Sin sesión viva y parados en repaso solo puede ser el resumen del final:
+    // ahí Escape sigue siendo la puerta, aunque ya no haya nada que cortar.
+    if (Router.name === 'repaso') Router.go('inicio');
+    return;
+  }
+  const { mazoId, hechas, otraVez } = ses;
+  S.sesion = null;
+
+  if (hechas) {
+    Toast.show({
+      title: 'Sesión terminada',
+      text: `${plural(hechas, 'repaso')}${otraVez ? ` · ${otraVez} para otra vez` : ''}, ya guardados.`,
+      icon: 'check',
+    });
+  }
+  Router.go(mazoId ? 'mazo' : 'inicio', mazoId || null) || Router.refresh();
+}
+
+/**
+ * Prende o apaga el modo azaroso. Es un AJUSTE, no un modo de sesión: se
+ * guarda en disco y la próxima cola ya nace en el orden que elegiste. Por eso
+ * el botón del repaso, el segmentado de Ajustes y el comando de la paleta
+ * entran todos por acá — son tres manijas de la misma perilla.
+ *
+ * En vivo reordena lo que falta, y arranca DESPUÉS de la ficha actual: la que
+ * estás mirando no se mueve. Cambiar la pregunta abajo del mouse —o peor, con
+ * la respuesta ya destapada— no es barajar, es perder el hilo.
+ *
+ * Apagarlo devuelve la prioridad al resto; no "desbaraja" lo ya repasado,
+ * porque eso no existe.
+ */
+async function setAzar(azar) {
+  if (!!S.settings.azar === azar) return;
+  await persist({ azar });
+  registerCommands();      // el comando de la paleta se llama según el estado
+
+  const ses = S.sesion;
+  if (ses) {
+    const resto = ses.cola.slice(ses.idx + 1);
+    ses.cola = [
+      ...ses.cola.slice(0, ses.idx + 1),
+      ...(azar ? barajar(resto) : resto.sort(porPrioridad)),
+    ];
+  }
+
+  /* Se toca el botón a mano en vez de repintar la vista: viewRepaso dibuja
+     siempre con el velo puesto, así que un refresh acá volvería a tapar una
+     respuesta que ya estabas leyendo. */
+  const btn = document.getElementById('btn-azar');
+  if (btn) {
+    btn.classList.toggle('is-on', azar);
+    btn.setAttribute('aria-pressed', String(azar));
+    btn.dataset.tip = azar ? 'Volver al orden por prioridad' : 'Barajar el repaso';
+  }
+
+  Toast.show({
+    title: azar ? 'Modo azaroso' : 'Orden por prioridad',
+    text: azar
+      ? 'Las preguntas salen mezcladas, sin importar cuál vence antes.'
+      : 'Vuelve a salir primero lo más atrasado, y las nuevas al final.',
+    icon: 'azar',
+    duration: 2600,
+  });
 }
 
 async function calificarActual(q) {
@@ -221,12 +311,21 @@ function revelar() {
   const f = ses.cola[ses.idx];
   if (esInteractiva(f)) pintarOpciones(f, ses.elegida);
 
-  // El orden importa: primero se pinta la respuesta DEBAJO del velo, después
-  // el velo se disuelve — el texto se aclara a través del vidrio que se va.
+  /* El orden importa, y son tres cosas en el MISMO frame: se pinta la
+     respuesta debajo del velo, el velo se pone el vidrio, y recién ahí se
+     disuelve — el texto se aclara a través del vidrio que se va.
+
+     El vidrio llega acá y no antes porque antes no había nada que esmerilar
+     (ver `.mn-velo.is-vidrio` en mnemus.css): la respuesta recién existe en
+     esta línea. Las tres mutaciones caen en el mismo repintado, así que no
+     hay un cuadro con el texto nítido en el medio. */
   const back = document.getElementById('back');
   if (back) back.style.visibility = 'visible';
   const velo = document.getElementById('velo');
-  if (velo) exit(velo, { fallback: 260 });
+  if (velo) {
+    velo.classList.add('is-vidrio');
+    exit(velo, { fallback: 260 });
+  }
   document.getElementById('calif')?.classList.add('is-on');
   updateChrome();
 }
@@ -234,7 +333,7 @@ function revelar() {
 /* ══ Vista: Inicio ═══════════════════════════════════════════════════════════ */
 
 function viewInicio() {
-  const hoy = paraHoy(S.fichas, cupo());
+  const hoy = paraHoy(S.fichas, reglas());
 
   paint(head({
     title: 'Inicio',
@@ -270,7 +369,7 @@ function viewInicio() {
 
 function rowMazo(m) {
   const fichas = fichasDe(m.id);
-  const hoy = paraHoy(fichas, cupo());
+  const hoy = paraHoy(fichas, reglas());
   const st = hoy ? 'queued' : (fichas.length ? 'done' : 'idle');
   return `
     <div class="op-listitem" role="button" tabindex="0" data-open-mazo="${esc(m.id)}">
@@ -325,7 +424,7 @@ function viewMazo(id) {
   }
 
   const fichas = fichasDe(id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  const hoy = paraHoy(fichas, cupo());
+  const hoy = paraHoy(fichas, reglas());
 
   paint(head({
     title: m.name,
@@ -364,14 +463,33 @@ function rowFicha(f) {
 
 /* ══ Vista: Repaso ═══════════════════════════════════════════════════════════
    Una ficha por vez, centrada sobre la niebla. La respuesta nace detrás del
-   velo esmerilado; Espacio la revela, 1–4 califican. */
+   velo esmerilado; Espacio la revela, 1–4 califican, «a» baraja lo que falta. */
+
+/**
+ * Lo que va arriba a la derecha mientras dura el repaso.
+ *
+ * Salir lleva PALABRA y no solo ícono. Un cuadrado o una cruz ahí arriba caen
+ * a setenta píxeles de maximizar y cerrar la ventana, y las tres cosas se
+ * leerían igual: el ícono solo es barato cuando no compite con otro ícono que
+ * significa algo mucho más gordo.
+ */
+function accionesRepaso({ conSalida = true } = {}) {
+  const on = !!S.settings.azar;
+  return `
+    ${conSalida ? `
+      <button class="op-btn op-btn--ghost op-flashable" data-action="terminar" data-tip-key="Esc"
+              data-tip="La sesión corta acá; lo calificado ya está guardado"><i data-icon="stop"></i> Terminar</button>` : ''}
+    <button class="op-iconbtn${on ? ' is-on' : ''}" id="btn-azar" data-action="azar"
+            aria-pressed="${on}" data-tip="${on ? 'Volver al orden por prioridad' : 'Barajar el repaso'}"
+            data-tip-key="A"><i data-icon="azar"></i></button>`;
+}
 
 function viewRepaso(param) {
   const mazoId = param === 'todo' ? null : param;
 
   // Entrar directo (paleta, arranque) sin sesión viva: se arma acá.
   if (!S.sesion || (S.sesion.mazoId || 'todo') !== (mazoId || 'todo')) {
-    const cola = armarCola(mazoId ? fichasDe(mazoId) : S.fichas, cupo());
+    const cola = armarCola(mazoId ? fichasDe(mazoId) : S.fichas, reglas());
     if (!cola.length) {
       paint(head({ title: 'Repaso' }) + empty({
         icon: 'check',
@@ -390,8 +508,18 @@ function viewRepaso(param) {
      Sin eso, cada visita apila un handler más y una tecla califica dos veces. */
   const onKey = (e) => {
     if (e.target.closest?.('input, textarea')) return;
+    /* Con un overlay abierto no se toca nada: Escape es de él —cerrarlo— antes
+       que de la sesión, y una calificación no puede salir de atrás de un
+       modal. El guard va ANTES que todo lo demás por eso mismo. */
     if (document.querySelector('.op-modal, .op-palette, .op-menu')) return;
     if (e.key === ' ') { e.preventDefault(); ses.revelada ? null : revelar(); }
+
+    // Salir. Sin overlay abierto, Escape es la puerta de la sesión.
+    if (e.key === 'Escape') { e.preventDefault(); terminarSesion(); return; }
+
+    /* «a» de azar. Es la única letra con atajo acá y no compite con nada: los
+       dígitos ya están tomados por las alternativas y las calificaciones. */
+    if (e.key === 'a' || e.key === 'A') { e.preventDefault(); setAzar(!S.settings.azar); return; }
 
     const n = '123456'.indexOf(e.key);
     if (n < 0) return;
@@ -408,7 +536,10 @@ function viewRepaso(param) {
 
   if (ses.idx >= ses.cola.length) {
     S.sesion = null;
-    paint(head({ title: 'Repaso' }) + `
+    // El de azar sigue acá a propósito: terminar es cuándo se decide cómo
+    // querés la próxima. Sin sesión viva, solo guarda el ajuste. El de salir
+    // no: de acá ya saliste, y abajo está el botón que corresponde.
+    paint(head({ title: 'Repaso', actions: accionesRepaso({ conSalida: false }) }) + `
       <div class="mn-repaso">
         <div class="mn-fin">
           ${Icons.svg('check')}
@@ -443,6 +574,7 @@ function viewRepaso(param) {
     title: m ? m.name : 'Repaso',
     sub: `${ses.idx + 1} de ${ses.cola.length}${ses.otraVez ? ` · ${ses.otraVez} otra vez` : ''}`,
     crumbs: m ? [{ label: 'Mazos', view: 'mazos' }, { label: m.name }] : undefined,
+    actions: accionesRepaso(),
   }) + `
     <div class="mn-repaso">
       <div class="mn-progreso">
@@ -547,6 +679,17 @@ function viewAjustes() {
               </div>
               <span class="op-field__hint">Las vencidas entran siempre: el cupo solo frena el material nuevo.</span>
             </div>
+
+            <div class="op-field" style="max-width:400px;margin-top:22px">
+              <label class="op-field__label">Orden de la cola</label>
+              <div class="op-segmented" id="set-orden" style="max-width:260px">
+                <button class="op-segmented__opt${S.settings.azar ? '' : ' is-active'}" data-value="prioridad">Por prioridad</button>
+                <button class="op-segmented__opt${S.settings.azar ? ' is-active' : ''}" data-value="azar">Al azar</button>
+              </div>
+              <span class="op-field__hint">Por prioridad sale primero lo más atrasado: si cortás la sesión a la mitad,
+                igual pagaste la deuda más urgente. Al azar mezcla todo y te saca el vicio de recordar una respuesta
+                porque venía después de otra. En el repaso se cambia con la tecla A.</span>
+            </div>
           </div></div>
         </div>
 
@@ -583,6 +726,7 @@ function viewAjustes() {
     </div>`);
 
   bindStepper(document.getElementById('set-nuevas'), (value) => persist({ nuevasPorDia: value }));
+  bindSwitcher(document.getElementById('set-orden'), (v) => setAzar(v === 'azar'));
 }
 
 async function persist(patch) {
@@ -1090,6 +1234,8 @@ function wireShell() {
       if (a === 'repasar') iniciarSesion(arg);
       if (a === 'importar') importarModal();
       if (a === 'exportar-todo') exportarMazos(S.mazos);
+      if (a === 'azar') setAzar(!S.settings.azar);
+      if (a === 'terminar') terminarSesion();
     }
   });
 
@@ -1109,7 +1255,7 @@ function updateChrome() {
   if (count) count.textContent = S.mazos.length;
 
   const hoy = document.getElementById('stat-hoy');
-  if (hoy) hoy.textContent = paraHoy(S.fichas, cupo());
+  if (hoy) hoy.textContent = paraHoy(S.fichas, reglas());
 
   const saved = document.querySelector('#stat-saved .op-statusbar__value');
   if (saved) saved.textContent = S.lastSaved ? relTime(S.lastSaved) : '—';
@@ -1137,6 +1283,12 @@ function registerCommands() {
       id: `rep-${m.id}`, group: 'Repasar', icon: 'zap', label: `Repasar ${m.name}`, hint: m.id,
       run: () => iniciarSesion(m.id),
     })),
+    {
+      id: 'azar', group: 'Repasar', icon: 'azar',
+      label: S.settings.azar ? 'Modo azaroso: apagar' : 'Modo azaroso: prender',
+      hint: S.settings.azar ? 'al azar' : 'por prioridad',
+      run: () => setAzar(!S.settings.azar),
+    },
     { id: 'nuevo-mazo', group: 'Crear', icon: 'plus', label: 'Nuevo mazo', run: nuevoMazoModal },
     { id: 'importar', group: 'Crear', icon: 'download', label: 'Importar un mazo…', run: importarModal },
     ...(S.mazos.length ? [

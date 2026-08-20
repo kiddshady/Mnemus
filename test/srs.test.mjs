@@ -7,7 +7,10 @@
    algoritmo, no el test.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { DIA, GRADOS, srsNueva, esNueva, calificar, simular, armarCola, finDeHoy } from '../renderer/js/srs.js';
+import {
+  DIA, GRADOS, srsNueva, esNueva, calificar, simular,
+  armarCola, barajar, porPrioridad, finDeHoy,
+} from '../renderer/js/srs.js';
 
 let pass = 0; let fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FALLA ${n} ${x}`); } };
@@ -82,6 +85,32 @@ ok('las nuevas respetan el cupo diario', cola.filter((c) => c.id.startsWith('n')
 ok('y entran en orden de creación', cola[2].id === 'n0');
 
 ok('finDeHoy queda adelante de ahora', finDeHoy(T0) > T0);
+
+console.log('\n7. El modo azaroso baraja el orden, nunca el contenido');
+
+/* Una fuente predecible en vez de Math.random: con esto el shuffle deja de ser
+   "parece mezclado" y pasa a tener un resultado exacto que se puede afirmar. */
+const fuente = (valores) => { let i = 0; return () => valores[i++ % valores.length]; };
+
+const abc = ['a', 'b', 'c', 'd', 'e'];
+const mezclado = barajar(abc, fuente([0, 0, 0, 0]));
+ok('barajar no toca la lista original', abc.join('') === 'abcde');
+ok('con rand=0 el barajado es exacto y predecible', mezclado.join('') === 'bcdea', mezclado.join(''));
+ok('y no pierde ni duplica nada', [...mezclado].sort().join('') === 'abcde');
+
+const pool = [alDia, vencidaHoy, ...nuevas, vencidaVieja];
+const enOrden = armarCola(pool, { nuevasPorDia: 10, now: T0 });
+const alAzar = armarCola(pool, { nuevasPorDia: 10, now: T0, azar: true, rand: fuente([0.7, 0.1, 0.4, 0.9, 0.2, 0.55]) });
+ok('la cola al azar tiene exactamente las mismas fichas', alAzar.length === enOrden.length
+  && alAzar.map((f) => f.id).sort().join() === enOrden.map((f) => f.id).sort().join());
+ok('el cupo de nuevas se respeta igual', alAzar.filter((c) => c.id.startsWith('n')).length === 10);
+ok('la que está al día sigue afuera', !alAzar.some((c) => c.id === 'ok'));
+ok('y el orden cambió', alAzar.map((f) => f.id).join() !== enOrden.map((f) => f.id).join());
+
+const revuelto = [nuevas[3], alDia, vencidaHoy, nuevas[0], vencidaVieja];
+ok('porPrioridad reconstruye el orden natural',
+  [...revuelto].sort(porPrioridad).map((f) => f.id).join() === 'vv,vh,ok,n0,n3',
+  [...revuelto].sort(porPrioridad).map((f) => f.id).join());
 
 console.log(`\n═══ ${pass} ok · ${fail} fallas ═══`);
 process.exit(fail ? 1 : 0);
