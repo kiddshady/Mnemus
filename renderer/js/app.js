@@ -19,7 +19,7 @@ import { Icons } from './icons.js';
 import { Tooltip, Toast, Menu, Modal } from './overlays.js';
 import Palette from './palette.js';
 import Router from './router.js';
-import { initClickFlash, initScrollFades, raf2, countTo, exit, bindStepper, bindSwitcher } from './motion.js';
+import { initClickFlash, initScrollFades, scrollFade, raf2, countTo, exit, bindStepper, bindSwitcher } from './motion.js';
 import { viewEl, esc, paint, head, empty, mark, setStateLabels, attempt, copy, colorToken } from './ui.js';
 import { relTime, plural } from './format.js';
 import { designHTML, wireDesign } from './design-view.js';
@@ -36,10 +36,15 @@ import {
   empaquetar, desempaquetar, nombreArchivo,
   validar as validarPaquete, resumen as resumenPaquete,
 } from './intercambio.js';
+import {
+  armarExamen, pct as puntaje, veredicto,
+  registro as registroExamen, promedio as promedioExamenes,
+} from './examen.js';
 
 const api = window.opal;
 const mazosCol = api.col('mazos');
 const fichasCol = api.col('fichas');
+const examenesCol = api.col('examenes');
 
 /* La marca y los símbolos del dominio. El set base no se edita: se extiende. */
 Icons.add({
@@ -48,6 +53,10 @@ Icons.add({
      se corta en el medio y por ese hueco se lee cuál pasa por encima. */
   azar: '<path d="M2.7 13.3 13.8 2.2"/><path d="M10.7 2.2h3.1v3.1"/>'
       + '<path d="M2.7 2.7 6 6"/><path d="M10 10l3.8 3.8"/><path d="M13.8 10.7v3.1h-3.1"/>',
+  /* Examen: el birrete. El rombo es la tapa, la copa cuelga debajo, y la borla
+     cae del vértice derecho. */
+  examen: '<path d="M1.7 6.3 8 3.3l6.3 3L8 9.3z"/>'
+      + '<path d="M4.2 8v2.8c0 1.05 1.7 1.9 3.8 1.9s3.8-.85 3.8-1.9V8"/><path d="M14.3 6.3v3.2"/>',
 });
 
 /* Las palabras del dominio sobre los estados del sistema. */
@@ -62,19 +71,24 @@ const S = {
   settings: {},
   mazos: [],
   fichas: [],
+  /** El historial: un registro por examen terminado (ver registro() en examen.js). */
+  examenes: [],
   lastSaved: null,
   /** La sesión de repaso viva, o null. */
   sesion: null,
+  /** El examen en curso (o ya corregido, mientras el resumen esté a la vista), o null. */
+  examen: null,
 };
 
 async function loadAll() {
-  const [info, settings, mazos, fichas] = await Promise.all([
-    api.info(), api.settings.get(), mazosCol.list(), fichasCol.list(),
+  const [info, settings, mazos, fichas, examenes] = await Promise.all([
+    api.info(), api.settings.get(), mazosCol.list(), fichasCol.list(), examenesCol.list(),
   ]);
   S.info = info;
   S.settings = settings;
   S.mazos = mazos.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   S.fichas = fichas;
+  S.examenes = examenes;
 }
 
 async function saveMazo(mazo) {
@@ -108,6 +122,20 @@ async function saveFicha(ficha) {
 async function removeFicha(id) {
   await fichasCol.remove(id);
   S.fichas = S.fichas.filter((f) => f.id !== id);
+  updateChrome();
+}
+
+async function saveExamen(reg) {
+  const saved = await examenesCol.save(reg);
+  S.examenes = [saved, ...S.examenes.filter((x) => x.id !== saved.id)];
+  S.lastSaved = Date.now();
+  updateChrome();
+  return saved;
+}
+
+async function removeExamen(id) {
+  await examenesCol.remove(id);
+  S.examenes = S.examenes.filter((x) => x.id !== id);
   updateChrome();
 }
 
@@ -330,6 +358,192 @@ function revelar() {
   updateChrome();
 }
 
+/* ══ Sesión de examen ════════════════════════════════════════════════════════
+   Una medición, no un repaso (ver examen.js): cada ficha se pregunta UNA vez,
+   nada se re-encola, y el SRS no se escribe. La contabilidad es binaria —
+   correcta o fallada — y las falladas se guardan enteras para la revisión
+   del final: un examen que solo te da un número te dice cuánto no sabés,
+   pero no QUÉ. */
+
+function iniciarExamen(mazoId = null) {
+  const pool = mazoId ? fichasDe(mazoId) : S.fichas;
+  if (!pool.length) {
+    Toast.show({ title: 'No hay nada que evaluar', text: 'Un examen necesita al menos una ficha en el mazo.', icon: 'examen' });
+    return;
+  }
+  const m = mazoId ? mazo(mazoId) : null;
+
+  /* El examen empieza con UNA decisión: cuántas preguntas. Todo lo demás ya
+     está decidido — entra el mazo completo (no la cola del día) y sale
+     barajado. Un armado de cinco perillas no es un examen, es un formulario. */
+  const body = document.createElement('div');
+  body.className = 'op-field';
+  body.innerHTML = `
+    <label class="op-field__label">Preguntas</label>
+    <div class="op-stepper" id="ex-cantidad" style="max-width:220px">
+      <input class="op-input op-num" type="number" min="1" max="${pool.length}" step="1" value="${pool.length}">
+      <div class="op-stepper__btns">
+        <button class="op-stepper__btn" data-step="up" tabindex="-1"><i data-icon="chevronUp"></i></button>
+        <button class="op-stepper__btn" data-step="down" tabindex="-1"><i data-icon="chevronDown"></i></button>
+      </div>
+    </div>
+    <span class="op-field__hint">Salen barajadas, del mazo completo — no solo lo vencido.
+      Menos que el total es una muestra al azar. El resultado no toca tu plan de repaso.</span>`;
+  Icons.mount(body);
+  bindStepper(body.querySelector('#ex-cantidad'), () => {});
+  const input = body.querySelector('input');
+
+  return Modal.show({
+    title: m ? `Examen de ${m.name}` : 'Examen de todo',
+    sub: `${plural(pool.length, 'ficha')} en juego. Cada una se pregunta una sola vez.`,
+    body,
+    width: 420,
+    actions: [
+      { label: 'Cancelar', value: null },
+      { label: 'Empezar', value: true, variant: 'primary', autofocus: true },
+    ],
+  }).then((ok) => {
+    if (!ok) return;
+    const cola = armarExamen(pool, { cantidad: Number(input.value) });
+    S.examen = { mazoId, cola, idx: 0, correctas: 0, falladas: [], revelada: false, elegida: null };
+    Router.go('examen', mazoId || 'todo') || Router.refresh();
+  });
+}
+
+/**
+ * La salida del examen SÍ pregunta, y la del repaso no — y no es incoherencia:
+ * el repaso guarda cada calificación al momento de darla, así que irse no
+ * pierde nada; el examen no escribe nada nunca, así que irse a la mitad tira
+ * lo contestado. Confirmar tiene sentido exactamente cuando hay algo que
+ * perder. Del resumen, en cambio, se sale sin preguntar: ya no queda nada.
+ */
+async function abandonarExamen() {
+  const ex = S.examen;
+  if (!ex) {
+    if (Router.name === 'examen') Router.go('inicio');
+    return;
+  }
+
+  const terminado = ex.idx >= ex.cola.length;
+  const empezado = ex.idx > 0 || ex.revelada;
+  if (!terminado && empezado) {
+    const ok = await Modal.confirm({
+      title: '¿Abandonar el examen?',
+      sub: `Llevás ${ex.idx} de ${ex.cola.length} contestadas. Retirarse es salir sin nota: el examen no guarda nada.`,
+      confirmLabel: 'Abandonar',
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  const { mazoId } = ex;
+  S.examen = null;
+  Router.go(mazoId ? 'mazo' : 'inicio', mazoId || null) || Router.refresh();
+}
+
+/** Contestar eligiendo, en el examen: acá la elección ES el veredicto. No hay
+    autocalificación posible ni grado que discutir — marcaste la que marcaste. */
+function elegirOpcionExamen(i) {
+  const ex = S.examen;
+  if (!ex || ex.revelada) return;
+  const f = ex.cola[ex.idx];
+  if (!esInteractiva(f) || i < 0 || i >= opcionesDe(f).length) return;
+  ex.elegida = i;
+  if (i === indiceCorrecto(f)) ex.correctas += 1;
+  else ex.falladas.push({ ficha: f, elegida: i });
+  revelarExamen();
+}
+
+/** El mismo destape del repaso (ver revelar(): las tres mutaciones del velo en
+    el mismo frame), con la contabilidad del examen encima. */
+function revelarExamen() {
+  const ex = S.examen;
+  if (!ex || ex.revelada) return;
+  const f = ex.cola[ex.idx];
+
+  /* Rendirse en una ficha con alternativas —pedir verla sin elegir— es no
+     saberla: en un examen, en blanco no suma. Queda anotada sin elección. */
+  if (esInteractiva(f) && ex.elegida == null) ex.falladas.push({ ficha: f, elegida: null });
+  ex.revelada = true;
+  if (esInteractiva(f)) pintarOpciones(f, ex.elegida);
+
+  const back = document.getElementById('back');
+  if (back) back.style.visibility = 'visible';
+  const velo = document.getElementById('velo');
+  if (velo) {
+    velo.classList.add('is-vidrio');
+    exit(velo, { fallback: 260 });
+  }
+
+  const fila = document.getElementById('ex-resolver');
+  if (fila) fila.classList.add('is-on');
+  if (esInteractiva(f)) {
+    const btn = fila?.querySelector('[data-ex="siguiente"]');
+    // El foco espera a que la fila termine de entrar, como en el repaso.
+    if (btn) setTimeout(() => btn.focus({ preventScroll: true }), 280);
+  }
+  updateChrome();
+}
+
+/** La básica no se corrige sola: la respuesta ya está a la vista y el único
+    que sabe si la tenía sos vos. Binario a propósito — en un examen no hay
+    «más o menos la sabía». */
+function resolverBasicaExamen(supo) {
+  const ex = S.examen;
+  if (!ex || !ex.revelada) return;
+  const f = ex.cola[ex.idx];
+  if (esInteractiva(f)) return;              // las interactivas ya se contaron al elegir
+  if (supo) ex.correctas += 1;
+  else ex.falladas.push({ ficha: f, elegida: null });
+  avanzarExamen();
+}
+
+function avanzarExamen() {
+  const ex = S.examen;
+  if (!ex || !ex.revelada) return;
+  ex.idx += 1;
+  ex.revelada = false;
+  ex.elegida = null;
+  // El historial se escribe en la TRANSICIÓN al resumen, no al pintarlo: el
+  // resumen se puede repintar mil veces y el registro tiene que ser uno.
+  if (ex.idx >= ex.cola.length) guardarExamen(ex);
+  Router.refresh();
+}
+
+/**
+ * Un examen terminado queda en el historial. Solo terminado: retirarse a la
+ * mitad no deja registro — el confirm de la salida ya lo dice, «salir sin
+ * nota», y un historial con exámenes a medias no mide nada.
+ */
+async function guardarExamen(ex) {
+  if (ex.guardado) return;
+  ex.guardado = true;                    // antes del await: nadie escribe dos veces
+  const m = ex.mazoId ? mazo(ex.mazoId) : null;
+  await attempt(async () => {
+    const id = await examenesCol.nextId('e');
+    await saveExamen({ ...registroExamen(ex, { nombre: m?.name || null }), id });
+  }, { errorTitle: 'No se pudo guardar el examen en el historial' });
+}
+
+/**
+ * Del resumen a una sesión de repaso normal con SOLO lo que fallaste. Recién
+ * acá el examen toca el plan de repaso, y lo hace por la puerta de siempre:
+ * la sesión que arranca es un repaso común, que escribe su SRS al calificar
+ * como cualquier repaso que hayas pedido vos.
+ */
+function repasarFalladas() {
+  const ex = S.examen;
+  if (!ex || !ex.falladas.length) return;
+  // De S.fichas y no del examen: si una ficha cambió en el medio, se repasa la viva.
+  const cola = ex.falladas
+    .map(({ ficha }) => S.fichas.find((f) => f.id === ficha.id))
+    .filter(Boolean);
+  if (!cola.length) return;
+  const { mazoId } = ex;
+  S.examen = null;
+  S.sesion = { mazoId, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false, elegida: null };
+  Router.go('repaso', mazoId || 'todo') || Router.refresh();
+}
+
 /* ══ Vista: Inicio ═══════════════════════════════════════════════════════════ */
 
 function viewInicio() {
@@ -340,6 +554,7 @@ function viewInicio() {
     sub: 'Lo que se repasa hoy es lo que no se olvida mañana',
     actions: `
       ${hoy ? '<button class="op-btn op-btn--primary op-flashable" data-action="repasar"><i data-icon="zap"></i> Repasar ahora</button>' : ''}
+      ${S.fichas.length ? '<button class="op-btn op-btn--secondary op-flashable" data-action="examen" data-tip="Un examen de todos los mazos juntos"><i data-icon="examen"></i> Examen</button>' : ''}
       <button class="op-btn op-btn--secondary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Nuevo mazo</button>`,
   }) + `
     <div class="op-scroll op-grow">
@@ -382,6 +597,7 @@ function rowMazo(m) {
         ${hoy ? `<span class="op-chip">${hoy}</span>` : ''}
         <div class="op-rowactions">
           <button class="op-iconbtn op-iconbtn--sm" data-action="repasar" data-arg="${esc(m.id)}" data-tip="Repasar este mazo"><i data-icon="zap"></i></button>
+          ${fichas.length ? `<button class="op-iconbtn op-iconbtn--sm" data-action="examen" data-arg="${esc(m.id)}" data-tip="Tomar examen"><i data-icon="examen"></i></button>` : ''}
           <button class="op-iconbtn op-iconbtn--sm" data-menu="mazo" data-menu-arg="${esc(m.id)}" data-tip="Más"><i data-icon="more"></i></button>
         </div>
       </div>
@@ -433,6 +649,7 @@ function viewMazo(id) {
     actions: `
       <button class="op-btn op-btn--primary op-flashable" data-action="nueva-ficha" data-arg="${esc(id)}"><i data-icon="plus"></i> Nueva ficha</button>
       ${hoy ? `<button class="op-btn op-btn--secondary op-flashable" data-action="repasar" data-arg="${esc(id)}"><i data-icon="zap"></i> Repasar</button>` : ''}
+      ${fichas.length ? `<button class="op-btn op-btn--secondary op-flashable" data-action="examen" data-arg="${esc(id)}"><i data-icon="examen"></i> Examen</button>` : ''}
       <button class="op-iconbtn" data-menu="mazo" data-menu-arg="${esc(id)}" data-tip="Más"><i data-icon="more"></i></button>`,
   }) + (fichas.length
     ? `<div class="op-scroll op-grow">
@@ -482,6 +699,46 @@ function accionesRepaso({ conSalida = true } = {}) {
     <button class="op-iconbtn${on ? ' is-on' : ''}" id="btn-azar" data-action="azar"
             aria-pressed="${on}" data-tip="${on ? 'Volver al orden por prioridad' : 'Barajar el repaso'}"
             data-tip-key="A"><i data-icon="azar"></i></button>`;
+}
+
+/** La hoja de la ficha — compartida por el repaso y el examen: el frente (con
+    sus alternativas si las hay), el divisor, y la respuesta naciendo detrás
+    del velo. Quien la pinta cablea sus propios clicks: la hoja es la misma,
+    lo que significa contestarla no. */
+function hojaFicha(f) {
+  const interactiva = esInteractiva(f);
+  const ops = opcionesDe(f);
+  return `
+      <div class="mn-ficha${interactiva ? ' mn-ficha--interactiva' : ''}">
+        <div class="mn-ficha__zona">${interactiva ? `
+          <div class="mn-consulta op-scroll">
+            <div class="mn-ficha__front op-copyable">${esc(f.front)}</div>
+            <div class="mn-opciones" id="opciones">
+              ${ops.map((o, i) => `
+                <button class="mn-opcion op-flashable" data-opcion="${i}">
+                  <span class="mn-opcion__letra">${letra(i)}</span>
+                  <span class="mn-opcion__texto op-copyable">${esc(o)}</span>
+                  <span class="op-kbd">${i + 1}</span>
+                  <span class="mn-opcion__marca"></span>
+                </button>`).join('')}
+            </div>
+          </div>`
+          : `<div class="mn-ficha__front op-copyable">${esc(f.front)}</div>`}
+        </div>
+        <div class="mn-ficha__divisor"></div>
+        <div class="mn-ficha__answer">
+          <!-- La respuesta nace SIN PINTAR (visibility:hidden), no solo tapada:
+               así ningún capricho del compositor puede dejarla legible antes
+               de tiempo. El des-esmerilado real pasa al revelar: se pinta el
+               texto debajo del velo y el velo se disuelve encima. -->
+          <div class="mn-ficha__back op-copyable${interactiva ? ' op-scroll' : ''}" id="back" style="visibility:hidden">${esc(f.back)}</div>
+          <button class="mn-velo" id="velo" aria-label="Revelar la respuesta">
+            <span class="mn-velo__hint">${interactiva
+              ? 'Elegí una · <span class="op-kbd">Espacio</span> la muestra'
+              : '<span class="op-kbd">Espacio</span> revelar'}</span>
+          </button>
+        </div>
+      </div>`;
 }
 
 function viewRepaso(param) {
@@ -561,8 +818,6 @@ function viewRepaso(param) {
   const f = ses.cola[ses.idx];
   const m = mazo(f.mazo);
   const pct = Math.round((ses.idx / ses.cola.length) * 100);
-  const interactiva = esInteractiva(f);
-  const ops = opcionesDe(f);
   const grados = [
     ['otra', 'Otra vez', GRADOS.otra],
     ['dificil', 'Difícil', GRADOS.dificil],
@@ -583,36 +838,7 @@ function viewRepaso(param) {
         <span class="op-meta op-num">${ses.otraVez} otra vez</span>
       </div>
 
-      <div class="mn-ficha${interactiva ? ' mn-ficha--interactiva' : ''}">
-        <div class="mn-ficha__zona">${interactiva ? `
-          <div class="mn-consulta op-scroll">
-            <div class="mn-ficha__front op-copyable">${esc(f.front)}</div>
-            <div class="mn-opciones" id="opciones">
-              ${ops.map((o, i) => `
-                <button class="mn-opcion op-flashable" data-opcion="${i}">
-                  <span class="mn-opcion__letra">${letra(i)}</span>
-                  <span class="mn-opcion__texto op-copyable">${esc(o)}</span>
-                  <span class="op-kbd">${i + 1}</span>
-                  <span class="mn-opcion__marca"></span>
-                </button>`).join('')}
-            </div>
-          </div>`
-          : `<div class="mn-ficha__front op-copyable">${esc(f.front)}</div>`}
-        </div>
-        <div class="mn-ficha__divisor"></div>
-        <div class="mn-ficha__answer">
-          <!-- La respuesta nace SIN PINTAR (visibility:hidden), no solo tapada:
-               así ningún capricho del compositor puede dejarla legible antes
-               de tiempo. El des-esmerilado real pasa al revelar: se pinta el
-               texto debajo del velo y el velo se disuelve encima. -->
-          <div class="mn-ficha__back op-copyable${interactiva ? ' op-scroll' : ''}" id="back" style="visibility:hidden">${esc(f.back)}</div>
-          <button class="mn-velo" id="velo" aria-label="Revelar la respuesta">
-            <span class="mn-velo__hint">${interactiva
-              ? 'Elegí una · <span class="op-kbd">Espacio</span> la muestra'
-              : '<span class="op-kbd">Espacio</span> revelar'}</span>
-          </button>
-        </div>
-      </div>
+      ${hojaFicha(f)}
 
       <div class="mn-calif" id="calif">
         ${grados.map(([id, label, q], i) => `
@@ -638,6 +864,307 @@ function viewRepaso(param) {
   });
 
   updateChrome();
+}
+
+/* ══ Vista: Examen ═══════════════════════════════════════════════════════════
+   La misma hoja del repaso con otra contabilidad: cada ficha se pregunta una
+   vez, nada se re-encola, y al final hay una nota. Sin botón de azar — el
+   examen ya nace barajado y no hay prioridad que restaurar. */
+
+function viewExamen(param) {
+  const mazoId = param === 'todo' ? null : param;
+  const ex = S.examen;
+
+  /* Aterrizar acá sin examen armado (el flujo normal arma primero y navega
+     después): se ofrece armarlo, no se arma solo. Un examen empieza con una
+     decisión, no con un render. */
+  if (!ex || (ex.mazoId || 'todo') !== (mazoId || 'todo')) {
+    paint(head({ title: 'Examen' }) + empty({
+      icon: 'examen',
+      title: 'No hay examen en curso',
+      text: 'Un examen toma fichas del mazo, las pregunta una sola vez cada una, y te devuelve la prueba corregida. Sin tocar tu plan de repaso.',
+      actions: `<button class="op-btn op-btn--secondary op-flashable" data-action="examen"${mazoId ? ` data-arg="${esc(mazoId)}"` : ''}><i data-icon="examen"></i> Armar examen</button>`,
+    }));
+    return;
+  }
+
+  const m = ex.mazoId ? mazo(ex.mazoId) : null;
+  const total = ex.cola.length;
+  const crumbs = m ? [{ label: 'Mazos', view: 'mazos' }, { label: m.name }] : undefined;
+
+  /* Los atajos viven mientras vive la vista, como en el repaso. */
+  const onKey = (e) => {
+    if (e.target.closest?.('input, textarea')) return;
+    if (document.querySelector('.op-modal, .op-palette, .op-menu')) return;
+    if (e.key === 'Escape') { e.preventDefault(); abandonarExamen(); return; }
+    if (ex.idx >= total) return;                    // en el resumen solo queda la puerta
+
+    const f = ex.cola[ex.idx];
+    if (e.key === ' ') {
+      e.preventDefault();
+      if (!ex.revelada) revelarExamen();
+      else if (esInteractiva(f)) avanzarExamen();   // Espacio también pasa de página
+      return;
+    }
+    const n = '123456'.indexOf(e.key);
+    if (n < 0) return;
+    e.preventDefault();
+    /* El mismo dígito, dos fases: antes de contestar elige la alternativa;
+       en una básica revelada, 1 y 2 son «No la sabía» y «La sabía». */
+    if (!ex.revelada && esInteractiva(f)) elegirOpcionExamen(n);
+    else if (ex.revelada && !esInteractiva(f) && n < 2) resolverBasicaExamen(n === 1);
+  };
+  document.addEventListener('keydown', onKey);
+  Router.onLeave(() => document.removeEventListener('keydown', onKey));
+
+  /* ── El resumen: la prueba corregida ──
+     Vive mientras S.examen viva — un repintado vuelve a mostrarlo. Se
+     disuelve recién al salir por cualquiera de sus puertas. */
+  if (ex.idx >= total) {
+    const nota = puntaje(ex.correctas, total);
+    const correctaDe = (f) => opcionesDe(f)[indiceCorrecto(f)] ?? '';
+
+    paint(head({
+      title: m ? m.name : 'Examen',
+      sub: 'La prueba, corregida',
+      crumbs,
+    }) + `
+      <div class="op-scroll op-grow">
+        <div class="mn-resultado">
+          <div class="mn-nota"><span class="mn-nota__num op-num" id="nota">0</span><span class="mn-nota__pct">%</span></div>
+          <div class="op-subtitle">${esc(veredicto(nota))}</div>
+          <div class="mn-fin__cifras">
+            <div class="op-stat"><span class="op-stat__value op-num">${ex.correctas}</span><span class="op-stat__label">Correctas</span></div>
+            <div class="op-stat"><span class="op-stat__value op-num">${ex.falladas.length}</span><span class="op-stat__label">Incorrectas</span></div>
+            <div class="op-stat"><span class="op-stat__value op-num">${total}</span><span class="op-stat__label">Preguntas</span></div>
+          </div>
+          <div class="op-row" style="gap:8px;margin-top:14px">
+            ${ex.falladas.length ? '<button class="op-btn op-btn--primary op-flashable" data-ex="repasar-falladas"><i data-icon="zap"></i> Repasar las falladas</button>' : ''}
+            <button class="op-btn op-btn--${ex.falladas.length ? 'secondary' : 'primary'} op-flashable" data-ex="salir">Volver al inicio</button>
+            <button class="op-btn op-btn--ghost op-flashable" data-goto="examenes" data-tip="Este resultado ya quedó guardado ahí"><i data-icon="examen"></i> Historial</button>
+          </div>
+        </div>
+
+        ${ex.falladas.length ? `
+          <div class="op-section mn-revision">
+            <div class="op-section__head"><span class="op-section__title">Para revisar</span></div>
+            <div class="op-list">
+              ${ex.falladas.map(({ ficha: f, elegida }) => `
+                <div class="op-listitem mn-revision__item">
+                  ${mark('failed')}
+                  <div class="op-listitem__main">
+                    <span class="op-listitem__title op-copyable">${esc(f.front)}</span>
+                    <span class="op-listitem__sub op-copyable">${esInteractiva(f)
+                      ? `Era ${esc(correctaDe(f))}${elegida != null ? ` · marcaste ${esc(opcionesDe(f)[elegida])}` : ' · la dejaste pasar'}`
+                      : esc(f.back)}</span>
+                    ${esInteractiva(f) && f.back ? `<span class="op-listitem__sub op-copyable">${esc(f.back)}</span>` : ''}
+                  </div>
+                </div>`).join('')}
+            </div>
+          </div>` : ''}
+        <div style="height:32px"></div>
+      </div>`);
+
+    countTo(document.getElementById('nota'), nota, { duration: 900 });
+    const raiz = viewEl();
+    raiz.querySelector('[data-ex="repasar-falladas"]')?.addEventListener('click', repasarFalladas);
+    raiz.querySelector('[data-ex="salir"]').addEventListener('click', () => {
+      S.examen = null;
+      Router.go('inicio');
+    });
+    updateChrome();
+    return;
+  }
+
+  /* ── La pregunta ── */
+  const f = ex.cola[ex.idx];
+  const interactiva = esInteractiva(f);
+  const pctAvance = Math.round((ex.idx / total) * 100);
+  const ultima = ex.idx === total - 1;
+
+  paint(head({
+    title: m ? m.name : 'Examen',
+    sub: `Examen · ${ex.idx + 1} de ${total}`,
+    crumbs,
+    actions: `
+      <button class="op-btn op-btn--ghost op-flashable" data-action="abandonar-examen" data-tip-key="Esc"
+              data-tip="Retirarse es salir sin nota: el examen no guarda nada"><i data-icon="stop"></i> Retirarse</button>`,
+  }) + `
+    <div class="mn-repaso">
+      <div class="mn-progreso">
+        <span class="op-meta op-num">${ex.idx + 1}/${total}</span>
+        <div class="op-meter"><div class="op-meter__fill" style="--op-pct:${pctAvance}%"></div></div>
+        <span class="mn-marcador">
+          <span>${Icons.svg('check', 'op-icon--sm')}<span class="op-num">${ex.correctas}</span></span>
+          <span>${Icons.svg('close', 'op-icon--sm')}<span class="op-num">${ex.falladas.length}</span></span>
+        </span>
+      </div>
+
+      ${hojaFicha(f)}
+
+      ${interactiva ? `
+        <div class="mn-avance" id="ex-resolver">
+          <button class="op-btn op-btn--primary op-flashable" data-ex="siguiente">
+            ${ultima ? 'Ver el resultado' : 'Siguiente'}
+          </button>
+        </div>`
+      : `
+        <div class="mn-calif mn-calif--par" id="ex-resolver">
+          <button class="op-btn op-btn--secondary op-flashable mn-calif__otra" data-ex="no-sabia">
+            <span class="mn-calif__label">No la sabía</span>
+            <span class="mn-calif__int">incorrecta · 1</span>
+          </button>
+          <button class="op-btn op-btn--secondary op-flashable" data-ex="sabia">
+            <span class="mn-calif__label">La sabía</span>
+            <span class="mn-calif__int">correcta · 2</span>
+          </button>
+        </div>`}
+    </div>`);
+
+  const raiz = viewEl();
+  raiz.querySelector('#velo').addEventListener('click', revelarExamen);
+  raiz.querySelector('#opciones')?.addEventListener('click', (e) => {
+    // Marcar texto para copiarlo no es contestar, igual que en el repaso.
+    if (!window.getSelection().isCollapsed) return;
+    const btn = e.target.closest('[data-opcion]');
+    if (btn) elegirOpcionExamen(Number(btn.dataset.opcion));
+  });
+  raiz.querySelector('#ex-resolver').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ex]');
+    if (!btn) return;
+    if (btn.dataset.ex === 'siguiente') avanzarExamen();
+    else resolverBasicaExamen(btn.dataset.ex === 'sabia');
+  });
+
+  updateChrome();
+}
+
+/* ══ Vista: Exámenes ═════════════════════════════════════════════════════════
+   El historial de lo rendido. Es tuyo y es editable: cada examen acepta una
+   nota al margen (para anotarle el contexto que el número no cuenta) y se
+   puede eliminar. Como todo en Mnemus, cada registro es un JSON en tu disco. */
+
+function viewExamenes() {
+  const regs = [...S.examenes].sort((a, b) => (b.fecha || 0) - (a.fecha || 0));
+
+  paint(head({
+    title: 'Exámenes',
+    sub: regs.length
+      ? `${plural(regs.length, 'examen', 'exámenes')} · promedio ${promedioExamenes(regs)}%`
+      : 'El historial de lo que rendiste',
+  }) + (regs.length
+    ? `<div class="op-scroll op-grow">
+         <div class="op-list">${regs.map(rowExamen).join('')}</div>
+         <div style="height:32px"></div>
+       </div>`
+    : empty({
+      icon: 'examen',
+      title: 'Todavía no rendiste ninguno',
+      text: 'Cada examen que termines queda acá: la nota, qué fallaste, y lo que quieras anotarle. Retirarse a la mitad no deja registro.',
+      actions: S.fichas.length
+        ? '<button class="op-btn op-btn--secondary op-flashable" data-action="examen"><i data-icon="examen"></i> Tomar el primero</button>'
+        : '',
+    })));
+}
+
+function rowExamen(r) {
+  const nota = puntaje(r.correctas, r.total);
+  return `
+    <div class="op-listitem" role="button" tabindex="0" data-action="ver-examen" data-arg="${esc(r.id)}">
+      ${mark(nota >= 50 ? 'done' : 'failed')}
+      <div class="op-listitem__main">
+        <span class="op-listitem__title">${esc(r.nombre || 'Todos los mazos')}</span>
+        <span class="op-listitem__sub">${esc(relTime(r.fecha))} · ${r.correctas} de ${plural(r.total, 'pregunta')}${r.comentario ? ` · ${esc(r.comentario)}` : ''}</span>
+      </div>
+      <div class="op-listitem__aside">
+        <span class="op-chip op-num">${nota}%</span>
+        <div class="op-rowactions">
+          <button class="op-iconbtn op-iconbtn--sm" data-action="eliminar-examen" data-arg="${esc(r.id)}" data-tip="Eliminar del historial"><i data-icon="trash"></i></button>
+        </div>
+      </div>
+    </div>`;
+}
+
+/** El detalle de un examen rendido: las cifras, la revisión que quedó
+    congelada ese día, y la nota al margen — lo único editable, porque el
+    resultado ya pasó y los resultados no se editan. */
+async function verExamen(id) {
+  const r = S.examenes.find((x) => x.id === id);
+  if (!r) return;
+  const nota = puntaje(r.correctas, r.total);
+  const fecha = new Date(r.fecha).toLocaleString('es-AR', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+
+  const body = document.createElement('div');
+  body.className = 'op-col';
+  body.style.gap = '14px';
+  body.innerHTML = `
+    <div class="op-kv">
+      <span class="op-kv__k">Nota</span><span class="op-kv__v"><span class="op-num">${nota}%</span> — ${esc(veredicto(nota))}</span>
+      <span class="op-kv__k">Cifras</span><span class="op-kv__v op-num">${r.correctas} de ${r.total} correctas</span>
+      <span class="op-kv__k">Fecha</span><span class="op-kv__v">${esc(fecha)}</span>
+    </div>
+    <div class="op-field">
+      <label class="op-field__label">Nota al margen</label>
+      <textarea class="op-textarea" id="ex-comentario" rows="2" placeholder="Rendido sin estudiar, antes del parcial…"></textarea>
+    </div>
+    ${r.falladas?.length ? `
+      <div class="op-field">
+        <label class="op-field__label">Lo que fallaste ese día</label>
+        <div class="op-list op-scroll" id="ex-falladas" style="max-height:230px">
+          ${r.falladas.map((f) => `
+            <div class="op-listitem mn-revision__item">
+              ${mark('failed')}
+              <div class="op-listitem__main">
+                <span class="op-listitem__title op-copyable">${esc(f.front)}</span>
+                <span class="op-listitem__sub op-copyable">${f.respuesta != null
+                  ? `Era ${esc(f.respuesta)}${f.elegida ? ` · marcaste ${esc(f.elegida)}` : ' · la dejaste pasar'}`
+                  : esc(f.back || '')}</span>
+                ${f.respuesta != null && f.back ? `<span class="op-listitem__sub op-copyable">${esc(f.back)}</span>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`
+    : '<span class="op-meta">Sin falladas: ese día no se te escapó ninguna.</span>'}`;
+
+  const comentario = body.querySelector('#ex-comentario');
+  comentario.value = r.comentario || '';
+  const falladas = body.querySelector('#ex-falladas');
+  if (falladas) scrollFade(falladas);
+
+  const res = await Modal.show({
+    title: r.nombre ? `Examen de ${r.nombre}` : 'Examen de todo',
+    sub: `${r.id} · un archivo JSON en tu carpeta de datos, como todo acá.`,
+    body,
+    width: 560,
+    actions: [
+      { label: 'Cancelar', value: null },
+      { label: 'Guardar', value: true, variant: 'primary' },
+    ],
+  });
+  if (!res) return;
+
+  const texto = comentario.value.trim();
+  if (texto === (r.comentario || '')) return;
+  await attempt(() => saveExamen({ ...r, comentario: texto }));
+  Router.refresh();
+}
+
+async function eliminarExamen(id) {
+  const r = S.examenes.find((x) => x.id === id);
+  const ok = await Modal.confirm({
+    title: '¿Eliminar este examen del historial?',
+    sub: r
+      ? `${r.nombre || 'Todos los mazos'} · ${puntaje(r.correctas, r.total)}% · ${relTime(r.fecha)}. Esto no se puede deshacer.`
+      : undefined,
+    confirmLabel: 'Eliminar',
+    danger: true,
+  });
+  if (!ok) return;
+  await attempt(() => removeExamen(id));
+  Toast.show({ title: 'Examen eliminado', text: 'El historial es tuyo: cuenta lo que vos digas.', icon: 'trash' });
+  Router.refresh();
 }
 
 /* ══ Vista: Piezas ═══════════════════════════════════════════════════════════ */
@@ -1027,6 +1554,8 @@ Router.define({
   mazos: { view: viewMazos },
   mazo: { view: viewMazo, nav: 'mazos' },
   repaso: { view: viewRepaso, nav: 'inicio' },
+  examen: { view: viewExamen, nav: 'inicio' },
+  examenes: { view: viewExamenes },
   piezas: { view: viewPiezas },
   ajustes: { view: viewAjustes },
 }, document.getElementById('view'));
@@ -1171,6 +1700,7 @@ const MENUS = {
   mazo: (id) => [
     { label: 'Abrir', icon: 'external', onSelect: () => Router.go('mazo', id) },
     { label: 'Repasar', icon: 'zap', onSelect: () => iniciarSesion(id) },
+    { label: 'Tomar examen…', icon: 'examen', onSelect: () => iniciarExamen(id) },
     { label: 'Renombrar…', icon: 'edit', onSelect: () => renombrarMazo(id) },
     { label: 'Exportar…', icon: 'upload', onSelect: () => exportarMazos([mazo(id)].filter(Boolean)) },
     { label: 'Copiar id', icon: 'copy', onSelect: () => copy(id) },
@@ -1232,6 +1762,10 @@ function wireShell() {
       if (a === 'nueva-ficha') fichaModal(arg || Router.param);
       if (a === 'editar-ficha') fichaModal(null, arg);
       if (a === 'repasar') iniciarSesion(arg);
+      if (a === 'examen') iniciarExamen(arg);
+      if (a === 'abandonar-examen') abandonarExamen();
+      if (a === 'ver-examen') verExamen(arg);
+      if (a === 'eliminar-examen') eliminarExamen(arg);
       if (a === 'importar') importarModal();
       if (a === 'exportar-todo') exportarMazos(S.mazos);
       if (a === 'azar') setAzar(!S.settings.azar);
@@ -1243,9 +1777,16 @@ function wireShell() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const row = e.target.closest?.('[data-open-mazo]');
-    if (!row) return;
-    e.preventDefault();
-    Router.go('mazo', row.dataset.openMazo);
+    if (row) {
+      e.preventDefault();
+      Router.go('mazo', row.dataset.openMazo);
+      return;
+    }
+    const examen = e.target.closest?.('[data-action="ver-examen"]');
+    if (examen) {
+      e.preventDefault();
+      verExamen(examen.dataset.arg);
+    }
   });
 }
 
@@ -1267,6 +1808,10 @@ function updateChrome() {
   if (!ctx) return;
   if (Router.name === 'repaso' && S.sesion) {
     ctx.innerHTML = `${Icons.svg('mnemus', 'op-icon--sm')}<span>${S.sesion.idx + 1} de ${S.sesion.cola.length}</span>`;
+  } else if (Router.name === 'examen' && S.examen) {
+    const ex = S.examen;
+    ctx.innerHTML = `${Icons.svg('examen', 'op-icon--sm')}<span>${ex.idx >= ex.cola.length
+      ? 'Examen corregido' : `Examen · ${ex.idx + 1} de ${ex.cola.length}`}</span>`;
   } else if (Router.name === 'mazo') {
     const m = mazo(Router.param);
     ctx.innerHTML = m ? `${Icons.svg('layers', 'op-icon--sm')}<span>${esc(m.name)}</span>` : '';
@@ -1289,6 +1834,11 @@ function registerCommands() {
       hint: S.settings.azar ? 'al azar' : 'por prioridad',
       run: () => setAzar(!S.settings.azar),
     },
+    { id: 'examen', group: 'Examen', icon: 'examen', label: 'Tomar examen de todo', run: () => iniciarExamen(null) },
+    ...S.mazos.map((m) => ({
+      id: `ex-${m.id}`, group: 'Examen', icon: 'examen', label: `Examen de ${m.name}`, hint: m.id,
+      run: () => iniciarExamen(m.id),
+    })),
     { id: 'nuevo-mazo', group: 'Crear', icon: 'plus', label: 'Nuevo mazo', run: nuevoMazoModal },
     { id: 'importar', group: 'Crear', icon: 'download', label: 'Importar un mazo…', run: importarModal },
     ...(S.mazos.length ? [
@@ -1300,6 +1850,7 @@ function registerCommands() {
     ] : []),
     { id: 'nav-inicio', group: 'Ir a', icon: 'home', label: 'Inicio', run: () => Router.go('inicio') },
     { id: 'nav-mazos', group: 'Ir a', icon: 'layers', label: 'Mazos', run: () => Router.go('mazos') },
+    { id: 'nav-examenes', group: 'Ir a', icon: 'examen', label: 'Exámenes', hint: 'el historial', run: () => Router.go('examenes') },
     { id: 'nav-piezas', group: 'Ir a', icon: 'grid', label: 'Piezas', run: () => Router.go('piezas') },
     { id: 'nav-ajustes', group: 'Ir a', icon: 'settings', label: 'Ajustes', run: () => Router.go('ajustes') },
     ...S.mazos.map((m) => ({

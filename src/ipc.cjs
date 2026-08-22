@@ -24,7 +24,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
 /* Las colecciones que el renderer puede tocar. Es una lista blanca a
    propósito: sin ella, cualquier bug en el renderer puede crear carpetas
    sueltas en tu directorio de datos. Agregá las tuyas acá. */
-const COLLECTIONS = ['mazos', 'fichas'];
+const COLLECTIONS = ['mazos', 'fichas', 'examenes'];
 
 function coll(name) {
   if (!COLLECTIONS.includes(name)) throw new Error(`colección no permitida: ${name}`);

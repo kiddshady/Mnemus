@@ -316,3 +316,91 @@
 }
 .mn-fin .op-icon { width: 34px; height: 34px; color: var(--op-text-3); stroke-width: 1; }
 .mn-fin__cifras { display: flex; gap: var(--op-8); margin-top: var(--op-3); }
+
+/* ── El examen ───────────────────────────────────────────────────────────────
+   La misma hoja del repaso con otra contabilidad alrededor: un marcador en
+   vez del «otra vez», una resolución binaria en vez de cuatro grados, y al
+   final la prueba corregida. */
+
+/* El marcador vivo: aciertos y fallas, en gris a propósito — es un dato que
+   acompaña, no un semáforo que grita mientras pensás. */
+.mn-marcador {
+  display: flex;
+  align-items: center;
+  gap: var(--op-3);
+  color: var(--op-text-3);
+  font-size: var(--op-fs-12);
+}
+.mn-marcador > span { display: flex; align-items: center; gap: var(--op-1); }
+
+/* Las básicas se resuelven en dos: reusa la fila de calificación con la mitad
+   de columnas, acotadas y centradas para que dos botones no ocupen lo que
+   ocupaban cuatro. */
+.mn-calif--par {
+  grid-template-columns: repeat(2, minmax(0, 240px));
+  justify-content: center;
+}
+
+/* Las interactivas ya quedaron corregidas al elegir: solo resta avanzar. El
+   mismo mecanismo de aparición de .mn-calif — el lugar está reservado desde
+   el arranque y el contenido se materializa al revelar. */
+.mn-avance {
+  width: min(680px, 100%);
+  display: flex;
+  justify-content: center;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--op-t-3) var(--op-ease), transform var(--op-t-3) var(--op-ease);
+}
+.mn-avance.is-on {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+}
+.mn-avance .op-btn { min-width: 220px; height: 44px; }
+
+/* ── La prueba corregida ─────────────────────────────────────────────────────
+   La nota arriba, enorme y en mono —es EL dato—, las cifras abajo, y después
+   la revisión: cada fallada con su respuesta al lado, porque un examen que
+   solo devuelve un número te dice cuánto no sabés, pero no qué. */
+.mn-resultado {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--op-3);
+  text-align: center;
+  padding: var(--op-8) 0 var(--op-7);
+  animation: op-rise-in var(--op-t-4) var(--op-ease) both;
+}
+.mn-nota {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.mn-nota__num {
+  font-size: 56px;
+  font-weight: var(--op-w-medium);
+  letter-spacing: var(--op-track-tight);
+  line-height: 1;
+}
+.mn-nota__pct {
+  font-size: var(--op-fs-19);
+  color: var(--op-text-3);
+}
+
+.mn-revision {
+  max-width: 680px;
+  margin: 0 auto;
+}
+/* Acá el texto envuelve: la revisión es para releer, no para escanear, y una
+   pregunta truncada con puntos suspensivos no se puede estudiar. */
+.mn-revision__item { align-items: flex-start; }
+.mn-revision__item .op-mark { margin-top: 5px; }
+.mn-revision__item .op-listitem__title,
+.mn-revision__item .op-listitem__sub {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.5;
+}

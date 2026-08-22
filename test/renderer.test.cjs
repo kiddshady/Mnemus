@@ -444,6 +444,149 @@ app.whenReady().then(async () => {
   if (importado) creados.push(importado.id);
   fs.rmSync(archivo, { force: true });
 
+  /* El examen: mide sin escribir. La promesa entera del modo está en UNA
+     comparación de disco — las srs de las fichas antes y después del examen
+     tienen que ser byte a byte las mismas, porque un examen que reprograma
+     el plan de repaso es un repaso disfrazado. Lo demás se mide sobre un
+     resultado conocido: la de opción múltiple se contesta MAL a propósito y
+     la básica BIEN, así el 50% del final no es una casualidad del barajado. */
+  console.log('\n4-septies. El examen: puntaje, revisión y el SRS intacto');
+  const srsAntesExamen = await js(`window.opal.col('fichas').list()
+    .then(l => JSON.stringify(l.filter(f => f.mazo === ${JSON.stringify(mazoId)})
+      .map(f => [f.id, f.srs]).sort()))`);
+
+  await click(`[data-open-mazo="${mazoId}"]`);
+  await sleep(700);
+  ok('el mazo ofrece el examen', await js(`!!document.querySelector('[data-action="examen"]')`));
+  await click(`[data-action="examen"][data-arg="${mazoId}"]`);
+  await sleep(600);
+  ok('el armado abre proponiendo el mazo completo',
+    (await js(`document.querySelector('#ex-cantidad input')?.value`)) === '2');
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1000);
+
+  ok('el examen abre con la hoja de siempre', await js(`!!document.querySelector('.mn-ficha')`));
+  ok('con el marcador en cero',
+    (await js(`[...document.querySelectorAll('.mn-marcador .op-num')].map(e => e.textContent).join('-')`)) === '0-0');
+  ok('y sin el botón de azar: ya nació barajado', !(await js(`!!document.getElementById('btn-azar')`)));
+
+  // El orden es al azar: se contesta según lo que salga — la de opción
+  // múltiple siempre mal, la básica siempre bien. Una y una, pase lo que pase.
+  const contestar = async () => {
+    const interactiva = await js(`!!document.querySelector('#opciones')`);
+    if (interactiva) {
+      await click('.mn-opcion[data-opcion="0"]');        // «una»: errada a propósito
+      await sleep(700);
+      ok('errar no abre calificación: la elección ya es el veredicto',
+        await js(`!!document.querySelector('[data-ex="siguiente"]')`)
+        && !(await js(`!!document.getElementById('calif')`)));
+      await click('[data-ex="siguiente"]');
+    } else {
+      await click('#velo');
+      await sleep(600);
+      ok('la básica se resuelve en binario, sin grados',
+        (await js(`document.querySelectorAll('#ex-resolver [data-ex]').length`)) === 2);
+      await click('[data-ex="sabia"]');
+    }
+    await sleep(900);
+  };
+
+  await contestar();
+
+  // Irse con una contestada pregunta: acá SÍ hay algo que perder (ver la
+  // simetría con el repaso, que se va sin preguntar porque ya guardó todo).
+  escape();
+  await sleep(600);
+  ok('salir a mitad de examen pide confirmación', await js(`!!document.querySelector('.op-modal')`));
+  escape();
+  await sleep(600);
+  ok('cancelar deja el examen donde estaba',
+    !(await js(`!!document.querySelector('.op-modal')`)) && (await js(`!!document.querySelector('.mn-ficha')`)));
+
+  await contestar();
+
+  await sleep(1100);                                     // la nota cuenta hasta llegar
+  ok('al terminar aparece la prueba corregida', await js(`!!document.querySelector('.mn-resultado')`));
+  ok('con el 50 que se contestó', (await js(`document.getElementById('nota')?.textContent`)) === '50',
+    String(await js(`document.getElementById('nota')?.textContent`)));
+  ok('una correcta, una incorrecta, dos preguntas',
+    (await js(`[...document.querySelectorAll('.mn-resultado .op-stat__value')].map(e => e.textContent).join('-')`)) === '1-1-2');
+  const revision = await js(`(() => {
+    const items = [...document.querySelectorAll('.mn-revision .op-listitem')];
+    return { n: items.length, texto: items[0]?.textContent || '' };
+  })()`);
+  ok('la revisión lista SOLO la fallada', revision.n === 1, JSON.stringify(revision));
+  ok('con cuál era y qué marcaste',
+    revision.texto.includes('Era la correcta') && revision.texto.includes('marcaste una'), revision.texto);
+
+  const srsTrasExamen = await js(`window.opal.col('fichas').list()
+    .then(l => JSON.stringify(l.filter(f => f.mazo === ${JSON.stringify(mazoId)})
+      .map(f => [f.id, f.srs]).sort()))`);
+  ok('las srs NO se movieron: el examen mide, no escribe', srsTrasExamen === srsAntesExamen,
+    `${srsAntesExamen} → ${srsTrasExamen}`);
+
+  await click('[data-ex="repasar-falladas"]');
+  await sleep(1000);
+  ok('repasar las falladas arma una sesión con SOLO eso',
+    (await js(`document.querySelector('.mn-progreso .op-num')?.textContent`)) === '1/1',
+    String(await js(`document.querySelector('.mn-progreso .op-num')?.textContent`)));
+  ok('y es la que fallaste',
+    (await js(`document.querySelector('.mn-ficha__front')?.textContent.trim()`)) === '¿Cuál de estas es la correcta?');
+  await click('[data-action="terminar"]');
+  await sleep(900);
+  ok('salir del repaso devuelve al mazo del examen',
+    await js(`!!document.querySelector('[data-action="nueva-ficha"][data-arg=${JSON.stringify(mazoId)}]')`));
+
+  /* El historial. La mitad de la promesa es qué guarda —textos congelados,
+     no referencias a fichas vivas— y la otra mitad es que sea EDITABLE: la
+     nota al margen se escribe, y una entrada se elimina de verdad. */
+  console.log('\n4-octies. El historial: el registro, la nota al margen y el borrado');
+  const regs = await js(`window.opal.col('examenes').list()
+    .then(l => l.filter(x => x.mazo === ${JSON.stringify(mazoId)}))`);
+  ok('el examen terminado dejó UN registro (ni el confirm cancelado ni el resumen repintado duplican)',
+    regs.length === 1, JSON.stringify(regs.map((x) => x.id)));
+  const reg = regs[0] || {};
+  ok('con las cifras del examen', reg.total === 2 && reg.correctas === 1, JSON.stringify(reg));
+  ok('el nombre del mazo viaja adentro, no como referencia', reg.nombre === 'Humo');
+  ok('y la fallada quedó como texto: cuál era y qué marcaste',
+    reg.falladas?.[0]?.respuesta === 'la correcta' && reg.falladas?.[0]?.elegida === 'una',
+    JSON.stringify(reg.falladas));
+
+  await click('[data-view="examenes"]');
+  await sleep(800);
+  ok('la vista Exámenes lo lista con su nota', await js(`(() => {
+    const fila = document.querySelector('[data-action="ver-examen"][data-arg=${JSON.stringify(reg.id)}]');
+    return !!fila && fila.querySelector('.op-chip')?.textContent === '50%';
+  })()`));
+
+  await click(`[data-action="ver-examen"][data-arg="${reg.id}"]`);
+  await sleep(700);
+  ok('el detalle abre con la revisión congelada', await js(`(() => {
+    const m = document.querySelector('.op-modal');
+    return !!m && m.textContent.includes('Era la correcta') && m.textContent.includes('marcaste una');
+  })()`));
+  await js(`(() => { const t = document.getElementById('ex-comentario');
+    t.value = 'Rendido por el test de humo'; return true; })()`);
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1000);
+  ok('la nota al margen llegó al disco',
+    (await js(`window.opal.col('examenes').get(${JSON.stringify(reg.id)}).then(x => x.comentario)`))
+      === 'Rendido por el test de humo');
+  ok('y la fila la muestra', await js(`(() => {
+    const fila = document.querySelector('[data-action="ver-examen"][data-arg=${JSON.stringify(reg.id)}]');
+    return !!fila && fila.textContent.includes('Rendido por el test de humo');
+  })()`));
+
+  await click(`[data-action="eliminar-examen"][data-arg="${reg.id}"]`);
+  await sleep(600);
+  ok('eliminar pide confirmación', await js(`!!document.querySelector('.op-modal')`));
+  await click('.op-modal__foot .op-btn--danger-solid');
+  await sleep(1000);
+  ok('la entrada se fue de la lista',
+    !(await js(`!!document.querySelector('[data-action="ver-examen"][data-arg=${JSON.stringify(reg.id)}]')`)));
+  ok('y del disco', (await js(`window.opal.col('examenes').list()
+    .then(l => l.filter(x => x.mazo === ${JSON.stringify(mazoId)}).length)`)) === 0);
+
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('[data-view="inicio"]');
   await sleep(700);
@@ -779,6 +922,8 @@ app.whenReady().then(async () => {
   for (const id of creados) {
     const sucias = await js(`window.opal.col('fichas').list().then(l => l.filter(f => f.mazo === ${JSON.stringify(id)}).map(f => f.id))`);
     for (const fid of sucias) await js(`window.opal.col('fichas').remove(${JSON.stringify(fid)})`);
+    const exs = await js(`window.opal.col('examenes').list().then(l => l.filter(x => x.mazo === ${JSON.stringify(id)}).map(x => x.id))`);
+    for (const eid of exs) await js(`window.opal.col('examenes').remove(${JSON.stringify(eid)})`);
     await js(`window.opal.col('mazos').remove(${JSON.stringify(id)})`);
   }
   await js(`window.opal.settings.save({ nuevasPorDia: 10 })`);

@@ -54,6 +54,46 @@ el filtro de qué entra no cambian.
 Prenderlo a mitad de sesión reordena solo lo que falta **después** de la ficha
 actual: la que estás mirando no se mueve.
 
+## El modo examen
+
+Un examen es una medición, no un repaso: tomás N fichas del mazo —el mazo
+**completo**, no solo lo vencido—, las contestás una vez cada una y al final hay
+un puntaje. **El SRS no se entera**: el examen lee las fichas pero jamás escribe
+una srs, porque medir cuánto sabés no es estudiar, y un examen que te reprograma
+el plan de repaso castiga dos veces la misma falla.
+
+Se toma desde el **Examen** del Inicio (todos los mazos juntos), desde el botón
+**Examen** de un mazo, desde las acciones de su fila, desde su menú contextual,
+o desde la paleta. Lo único que se decide al armarlo es cuántas preguntas: salen
+siempre barajadas, y menos que el total es una muestra al azar del mazo.
+
+Las de opción múltiple y verdadero/falso se corrigen solas —la elección es el
+veredicto, sin calificación que discutir—; en las básicas la respuesta se revela
+y contestás en binario, **la sabía** o **no la sabía**, porque en un examen no
+hay «más o menos la sabía».
+
+Al final, la prueba corregida: el porcentaje, las cifras, y cada fallada con la
+respuesta que era, la que marcaste y su explicación. **Repasar las falladas**
+arma ahí mismo una sesión de repaso normal con solo eso — recién ahí el examen
+toca el plan de repaso, y lo hace por la puerta de siempre.
+
+Salir a mitad de examen sí pide confirmación, al revés que el repaso — y es la
+misma lógica, no una contradicción: el repaso guarda cada calificación al darla,
+así que irse no pierde nada; el examen no guarda nada hasta el final, así que
+irse tira lo contestado.
+
+### El historial
+
+Cada examen **terminado** queda en la vista **Exámenes**: la fecha, la nota, y
+la revisión congelada de ese día — qué fallaste y qué marcaste, guardado como
+**texto**, no como referencias, así editar o borrar una ficha mañana no te
+reescribe la historia. Retirarse a la mitad no deja registro.
+
+El historial es tuyo y es editable: cada examen acepta una **nota al margen**
+(el contexto que el número no cuenta: «sin estudiar», «antes del parcial») y
+cualquier entrada se puede eliminar. Como todo en Mnemus, cada registro es un
+archivo JSON en tu carpeta de datos.
+
 ## Pasar un mazo a otra persona
 
 Desde el menú de un mazo, **Exportar…**; o el botón de exportar en la vista Mazos
@@ -73,7 +113,7 @@ mismo archivo no pisa nada, y un mazo de afuera no puede chocar con los tuyos.
 npm install
 npm run dev      # con la consola del renderer en la terminal
 npm start
-npm test         # unidad: SM-2, tipos de ficha, almacenamiento, formato, tokens
+npm test         # unidad: SM-2, tipos de ficha, examen, almacenamiento, formato, tokens
 npm run smoke    # monta la app de verdad en Electron y la recorre
 npm run dist     # instalador NSIS en dist/
 ```
@@ -122,9 +162,10 @@ la app. Se puede mover con la variable de entorno `MNEMUS_DATA`.
 
 ```
 data/
-  settings.json      ajustes (cuántas fichas nuevas por día)
-  mazos/m-0001.json  un archivo por mazo
-  fichas/f-0001.json un archivo por ficha, con su historial de repaso
+  settings.json         ajustes (cuántas fichas nuevas por día)
+  mazos/m-0001.json     un archivo por mazo
+  fichas/f-0001.json    un archivo por ficha, con su historial de repaso
+  examenes/e-0001.json  un archivo por examen rendido
 ```
 
 Un archivo por ítem y no un array gigante: guardar una ficha no reescribe las
@@ -141,6 +182,7 @@ src/ipc.cjs           qué puede pedir el renderer (lista blanca)
 src/update.cjs        actualización automática
 renderer/js/srs.js    el motor SM-2, puro y testeable sin DOM
 renderer/js/ficha.js  los tipos de ficha, también puro
+renderer/js/examen.js el modo examen: la muestra, el puntaje y el veredicto
 renderer/js/app.js    las vistas
 renderer/css/         el sistema de diseño
 ```
