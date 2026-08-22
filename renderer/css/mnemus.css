@@ -321,7 +321,21 @@
    Una sección plegable por carpeta. El pliegue anima con grid-template-rows
    0fr→1fr — alto desconocido sin medirlo y sin animar `height`. El estado
    plegado persiste en los ajustes (ver togglePlegada en app.js). */
-.mn-carpeta { margin-bottom: var(--op-2); }
+.mn-carpeta {
+  margin-bottom: var(--op-2);
+  border-radius: var(--op-r-md);
+  transition: var(--tr-surface), box-shadow var(--op-t-2) var(--op-ease-soft);
+}
+
+/* ── Arrastrar y soltar ──
+   La fila agarrada se atenúa; la carpeta que puede recibirla se talla con el
+   canto y un wash — el mismo lenguaje de «esto es lo elegible» que usan las
+   alternativas del repaso. */
+.op-listitem.is-arrastrado { opacity: .45; }
+.mn-carpeta.is-destino {
+  background: var(--op-wash-1);
+  box-shadow: inset 0 0 0 1px var(--op-rim);
+}
 
 .mn-carpeta__head {
   display: flex;

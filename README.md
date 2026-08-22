@@ -102,7 +102,8 @@ niveles esconden la mitad. Un mazo vive en una carpeta o en ninguna, y quien no
 usa carpetas ve la lista plana de siempre.
 
 Se crean desde la vista Mazos o la paleta; un mazo se mueve desde su menú
-(**Mover a carpeta…**). Cada sección se **pliega y despliega** con un click, y
+(**Mover a carpeta…**) o **arrastrándolo** y soltándolo sobre la carpeta — sobre
+«Sin carpeta» lo saca. Cada sección se **pliega y despliega** con un click, y
 el pliegue persiste — la carpeta que plegaste ayer sigue plegada hoy. Mover un
 mazo no toca su fecha de edición: organizar no es editar.
 

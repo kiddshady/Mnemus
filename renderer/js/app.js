@@ -709,9 +709,12 @@ function rowMazo(m) {
   const fichas = fichasDe(m.id);
   const hoy = paraHoy(fichas, reglas());
   const st = hoy ? 'queued' : (fichas.length ? 'done' : 'idle');
+  /* La marca se explica sola: el lleno es «al día» y el hueco «con deuda», y
+     eso no se adivina — se pregunta con el mouse. */
+  const tip = { queued: 'Tiene fichas para hoy', done: 'Al día: nada vence hoy', idle: 'Sin fichas todavía' }[st];
   return `
-    <div class="op-listitem" role="button" tabindex="0" data-open-mazo="${esc(m.id)}">
-      ${mark(st, 'square')}
+    <div class="op-listitem" role="button" tabindex="0" data-open-mazo="${esc(m.id)}" draggable="true">
+      <span data-tip="${esc(tip)}">${mark(st, 'square')}</span>
       <div class="op-listitem__main">
         <span class="op-listitem__title">${esc(m.name)}</span>
         <span class="op-listitem__sub">${plural(fichas.length, 'ficha')}${hoy ? ` · ${hoy} para hoy` : ' · al día'}</span>
@@ -794,9 +797,16 @@ function viewMazo(id) {
 }
 
 function rowFicha(f) {
+  const st = estadoFicha(f);
+  const tip = {
+    idle: 'Nueva: todavía no la estudiaste',
+    waiting: 'Aprendiendo: la fallaste y vuelve enseguida',
+    queued: 'Vencida: entra en el próximo repaso',
+    done: 'Al día',
+  }[st];
   return `
     <div class="op-listitem" role="button" tabindex="0" data-action="editar-ficha" data-arg="${esc(f.id)}">
-      ${mark(estadoFicha(f))}
+      <span data-tip="${esc(tip)}">${mark(st)}</span>
       <div class="op-listitem__main">
         <span class="op-listitem__title">${esc(f.front)}</span>
         <span class="op-listitem__sub">${tipoDe(f) === 'basica' ? '' : `${esc(ETIQUETA_TIPO[tipoDe(f)])} · `}${esc(venceTxt(f))}${f.srs?.lapses ? ` · ${plural(f.srs.lapses, 'olvido')}` : ''}</span>
@@ -2074,6 +2084,69 @@ function wireShell() {
       e.preventDefault();
       togglePlegada(plegar.dataset.plegar);
     }
+  });
+
+  /* ── Arrastrar mazos a carpetas ──
+     El complemento veloz del modal «Mover a carpeta…»: agarrás la fila y la
+     soltás sobre una carpeta — o sobre «Sin carpeta» para sacarla. Delegado
+     acá, como los clicks: sobrevive a cualquier repintado. */
+  let dragMazo = null;
+
+  document.addEventListener('dragstart', (e) => {
+    const fila = e.target.closest?.('[data-open-mazo]');
+    if (!fila) return;
+    // Sin carpetas no hay dónde soltar: mejor ni arrancar el gesto.
+    if (!S.carpetas.length) { e.preventDefault(); return; }
+    dragMazo = fila.dataset.openMazo;
+    e.dataTransfer.setData('text/plain', dragMazo);
+    e.dataTransfer.effectAllowed = 'move';
+    fila.classList.add('is-arrastrado');
+  });
+
+  document.addEventListener('dragend', () => {
+    dragMazo = null;
+    document.querySelectorAll('.is-arrastrado').forEach((el) => el.classList.remove('is-arrastrado'));
+    document.querySelectorAll('.mn-carpeta.is-destino').forEach((el) => el.classList.remove('is-destino'));
+  });
+
+  document.addEventListener('dragover', (e) => {
+    if (!dragMazo) return;
+    const dest = e.target.closest?.('.mn-carpeta');
+    if (!dest) return;
+    // Soltarlo donde ya vive no es mover: ni se ilumina ni acepta.
+    const destinoId = dest.dataset.carpeta === 'raiz' ? null : dest.dataset.carpeta;
+    if ((mazo(dragMazo)?.carpeta || null) === destinoId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    dest.classList.add('is-destino');
+  });
+
+  document.addEventListener('dragleave', (e) => {
+    const dest = e.target.closest?.('.mn-carpeta');
+    if (dest && !dest.contains(e.relatedTarget)) dest.classList.remove('is-destino');
+  });
+
+  document.addEventListener('drop', async (e) => {
+    if (!dragMazo) return;
+    const dest = e.target.closest?.('.mn-carpeta');
+    if (!dest) return;
+    e.preventDefault();
+    const id = dragMazo;
+    dragMazo = null;
+    dest.classList.remove('is-destino');
+
+    const destinoId = dest.dataset.carpeta === 'raiz' ? null : dest.dataset.carpeta;
+    const m = mazo(id);
+    if (!m || (m.carpeta || null) === destinoId) return;
+    const hecho = await attempt(() => asignarCarpeta(id, destinoId));
+    if (hecho === null) return;
+    Toast.show({
+      title: 'Mazo movido',
+      text: `${m.name} → ${destinoId ? carpeta(destinoId)?.name : 'sin carpeta'}`,
+      icon: 'folder',
+      duration: 2200,
+    });
+    Router.refresh();
   });
 }
 

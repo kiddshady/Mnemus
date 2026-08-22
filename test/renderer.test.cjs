@@ -661,6 +661,33 @@ app.whenReady().then(async () => {
 
   await click('[data-view="mazos"]');
   await sleep(700);
+
+  /* Drag & drop: el mismo movimiento del modal, a mano alzada. Ida (a la
+     raíz) y vuelta (a la carpeta), leyendo el DISCO después de cada suelta. */
+  const arrastrar = (filaSel, destSel) => js(`(() => {
+    const dt = new DataTransfer();
+    const fila = document.querySelector(${JSON.stringify(filaSel)});
+    const dest = document.querySelector(${JSON.stringify(destSel)});
+    if (!fila || !dest) return { error: true, fila: !!fila, dest: !!dest };
+    fila.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    dest.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const marcado = dest.classList.contains('is-destino');
+    dest.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    fila.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+    return { marcado };
+  })()`);
+
+  const ida = await arrastrar(`[data-open-mazo="${mazoId}"]`, '.mn-carpeta[data-carpeta="raiz"]');
+  ok('arrastrar sobre un destino válido lo ilumina', ida?.marcado === true, JSON.stringify(ida));
+  await sleep(1000);
+  ok('soltarlo en «Sin carpeta» lo saca, en disco',
+    !(await js(`window.opal.col('mazos').get(${JSON.stringify(mazoId)}).then(m => m.carpeta || null)`)));
+  const vuelta = await arrastrar(`[data-open-mazo="${mazoId}"]`, `.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}]`);
+  ok('y arrastrarlo a la carpeta lo devuelve', vuelta?.marcado === true, JSON.stringify(vuelta));
+  await sleep(1000);
+  ok('también en disco',
+    (await js(`window.opal.col('mazos').get(${JSON.stringify(mazoId)}).then(m => m.carpeta)`)) === carpetaHumo.id);
+
   await js(`(() => { document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}] [data-menu="carpeta"]').click(); return true; })()`);
   await sleep(500);
   await js(`(() => {
@@ -675,6 +702,38 @@ app.whenReady().then(async () => {
   ok('pero el mazo QUEDA, suelto y con sus fichas', !!suelto && !suelto.carpeta, JSON.stringify(suelto?.carpeta));
   ok('y su sección desapareció de la lista',
     !(await js(`!!document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}]')`)));
+
+  /* Dos detalles que confundieron a un usuario real (el autor, de hecho):
+     el tacho de «Eliminar» que se ponía gris justo al apuntarlo, y la marca
+     de estado que no decía qué significaba. */
+  console.log('\n4-decies. El menú peligroso se mantiene rojo y la marca se explica');
+  await js(`(() => {
+    const fila = document.querySelector('[data-open-mazo=${JSON.stringify(mazoId)}]');
+    fila.querySelector('[data-menu="mazo"]').click(); return true; })()`);
+  await sleep(500);
+  const danger = await js(`(() => {
+    const it = [...document.querySelectorAll('.op-menuitem--danger')].pop();
+    if (!it) return null;
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--op-danger)';
+    document.body.appendChild(probe);
+    const esperado = getComputedStyle(probe).color;
+    probe.remove();
+    const reglas = [...document.styleSheets].flatMap(ss => { try { return [...ss.cssRules] } catch { return [] } })
+      .map(r => r.selectorText).filter(Boolean).join(' ');
+    return {
+      quieto: getComputedStyle(it.querySelector('.op-icon')).color === esperado,
+      reglaHover: reglas.includes('.op-menuitem--danger:hover .op-icon'),
+    };
+  })()`);
+  ok('el ícono del ítem peligroso es rojo en reposo', danger?.quieto === true, JSON.stringify(danger));
+  ok('y tiene regla PROPIA de hover: la genérica ya no lo pisa', danger?.reglaHover === true);
+  await js(`document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); true`);
+  await sleep(400);
+  ok('la marca de estado de un mazo lleva su explicación', await js(`(() => {
+    const mk = document.querySelector('[data-open-mazo] .op-mark');
+    return !!mk && !!mk.closest('[data-tip]')?.dataset.tip;
+  })()`));
 
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('[data-view="inicio"]');

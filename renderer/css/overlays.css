@@ -112,6 +112,11 @@
 .op-menuitem--danger { color: var(--op-danger); }
 .op-menuitem--danger .op-icon { color: var(--op-danger); }
 .op-menuitem--danger:hover { background: var(--op-danger-wash); color: var(--op-danger); }
+/* Con :hover, la regla genérica de arriba (`.op-menuitem:hover .op-icon`)
+   pesa 0-3-0 y le gana al 0-2-0 del danger: el tacho volvía a gris justo
+   cuando el mouse se paraba encima. Misma especificidad, declarada después. */
+.op-menuitem--danger:hover .op-icon,
+.op-menuitem--danger.is-active .op-icon { color: var(--op-danger); }
 .op-menuitem__key { margin-left: auto; font-size: var(--op-fs-10); color: var(--op-text-4); }
 .op-menu__sep { height: 1px; margin: var(--op-1) var(--op-2); background: var(--op-line); }
 .op-menu__label {
