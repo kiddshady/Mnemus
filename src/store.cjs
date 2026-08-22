@@ -64,6 +64,9 @@ const DEFAULT_SETTINGS = {
       el orden por urgencia es lo que hace que una sesión cortada a la mitad
       igual haya servido. */
   azar: false,
+  /** Ids de las carpetas plegadas en la lista de mazos. Es un ajuste y no un
+      estado efímero: la carpeta que plegaste ayer sigue plegada hoy. */
+  plegadas: [],
   ultimaVista: null,
 };
 

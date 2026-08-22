@@ -40,11 +40,13 @@ import {
   armarExamen, pct as puntaje, veredicto,
   registro as registroExamen, promedio as promedioExamenes,
 } from './examen.js';
+import { agrupar as agruparMazos } from './carpetas.js';
 
 const api = window.opal;
 const mazosCol = api.col('mazos');
 const fichasCol = api.col('fichas');
 const examenesCol = api.col('examenes');
+const carpetasCol = api.col('carpetas');
 
 /* La marca y los símbolos del dominio. El set base no se edita: se extiende. */
 Icons.add({
@@ -71,6 +73,8 @@ const S = {
   settings: {},
   mazos: [],
   fichas: [],
+  /** Las carpetas que agrupan mazos — un nivel, ver carpetas.js. */
+  carpetas: [],
   /** El historial: un registro por examen terminado (ver registro() en examen.js). */
   examenes: [],
   lastSaved: null,
@@ -81,14 +85,16 @@ const S = {
 };
 
 async function loadAll() {
-  const [info, settings, mazos, fichas, examenes] = await Promise.all([
-    api.info(), api.settings.get(), mazosCol.list(), fichasCol.list(), examenesCol.list(),
+  const [info, settings, mazos, fichas, examenes, carpetas] = await Promise.all([
+    api.info(), api.settings.get(), mazosCol.list(), fichasCol.list(),
+    examenesCol.list(), carpetasCol.list(),
   ]);
   S.info = info;
   S.settings = settings;
   S.mazos = mazos.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   S.fichas = fichas;
   S.examenes = examenes;
+  S.carpetas = carpetas;
 }
 
 async function saveMazo(mazo) {
@@ -137,6 +143,53 @@ async function removeExamen(id) {
   await examenesCol.remove(id);
   S.examenes = S.examenes.filter((x) => x.id !== id);
   updateChrome();
+}
+
+async function saveCarpeta(carpeta) {
+  const saved = await carpetasCol.save(carpeta);
+  S.carpetas = [saved, ...S.carpetas.filter((c) => c.id !== saved.id)];
+  S.lastSaved = Date.now();
+  updateChrome();
+  registerCommands();
+  return saved;
+}
+
+/**
+ * Eliminar una carpeta SUELTA sus mazos a la raíz, nunca se los lleva: la
+ * carpeta es organización, no propiedad. (Compará con removeMazo, que sí
+ * arrastra las fichas — una ficha sin mazo no significa nada; un mazo sin
+ * carpeta es un mazo como cualquiera.)
+ */
+async function removeCarpeta(id) {
+  for (const m of S.mazos.filter((x) => x.carpeta === id)) await asignarCarpeta(m.id, null);
+  await carpetasCol.remove(id);
+  S.carpetas = S.carpetas.filter((c) => c.id !== id);
+  // La carpeta se lleva su pliegue: un id muerto en los ajustes es basura.
+  const plegadas = (S.settings.plegadas || []).filter((x) => x !== id);
+  if (plegadas.length !== (S.settings.plegadas || []).length) persist({ plegadas });
+  updateChrome();
+  registerCommands();
+}
+
+/** Mover un mazo de carpeta escribe SIN tocar updatedAt: organizar no es
+    editar, y un mazo no debería trepar a "reciente" por haberlo archivado. */
+async function asignarCarpeta(mazoId, carpetaId) {
+  const m = mazo(mazoId);
+  if (!m || (m.carpeta || null) === (carpetaId || null)) return;
+  const patch = { ...m };
+  if (carpetaId) patch.carpeta = carpetaId;
+  else delete patch.carpeta;                 // canónico: sin carpeta = sin campo
+  const saved = await mazosCol.save(patch);
+  S.mazos = S.mazos.map((x) => (x.id === saved.id ? saved : x));
+  S.lastSaved = Date.now();
+  updateChrome();
+}
+
+const carpeta = (id) => S.carpetas.find((c) => c.id === id) || null;
+const mazosEnCarpeta = (id) => S.mazos.filter((m) => m.carpeta === id);
+function fichasDeCarpeta(id) {
+  const ids = new Set(mazosEnCarpeta(id).map((m) => m.id));
+  return S.fichas.filter((f) => ids.has(f.mazo));
 }
 
 const mazo = (id) => S.mazos.find((m) => m.id === id) || null;
@@ -365,13 +418,17 @@ function revelar() {
    del final: un examen que solo te da un número te dice cuánto no sabés,
    pero no QUÉ. */
 
-function iniciarExamen(mazoId = null) {
-  const pool = mazoId ? fichasDe(mazoId) : S.fichas;
+/** `extra` es la puerta de los exámenes que no son de UN mazo: una carpeta
+    pasa su propio pool y su nombre, y todo lo demás — el armado, el registro
+    del historial — sale idéntico. */
+function iniciarExamen(mazoId = null, { pool: poolCustom, nombre: nombreCustom } = {}) {
+  const pool = poolCustom || (mazoId ? fichasDe(mazoId) : S.fichas);
   if (!pool.length) {
-    Toast.show({ title: 'No hay nada que evaluar', text: 'Un examen necesita al menos una ficha en el mazo.', icon: 'examen' });
+    Toast.show({ title: 'No hay nada que evaluar', text: 'Un examen necesita al menos una ficha.', icon: 'examen' });
     return;
   }
   const m = mazoId ? mazo(mazoId) : null;
+  const nombre = nombreCustom || m?.name || null;
 
   /* El examen empieza con UNA decisión: cuántas preguntas. Todo lo demás ya
      está decidido — entra el mazo completo (no la cola del día) y sale
@@ -394,7 +451,7 @@ function iniciarExamen(mazoId = null) {
   const input = body.querySelector('input');
 
   return Modal.show({
-    title: m ? `Examen de ${m.name}` : 'Examen de todo',
+    title: nombre ? `Examen de ${nombre}` : 'Examen de todo',
     sub: `${plural(pool.length, 'ficha')} en juego. Cada una se pregunta una sola vez.`,
     body,
     width: 420,
@@ -405,7 +462,7 @@ function iniciarExamen(mazoId = null) {
   }).then((ok) => {
     if (!ok) return;
     const cola = armarExamen(pool, { cantidad: Number(input.value) });
-    S.examen = { mazoId, cola, idx: 0, correctas: 0, falladas: [], revelada: false, elegida: null };
+    S.examen = { mazoId, nombre, cola, idx: 0, correctas: 0, falladas: [], revelada: false, elegida: null };
     Router.go('examen', mazoId || 'todo') || Router.refresh();
   });
 }
@@ -517,10 +574,9 @@ function avanzarExamen() {
 async function guardarExamen(ex) {
   if (ex.guardado) return;
   ex.guardado = true;                    // antes del await: nadie escribe dos veces
-  const m = ex.mazoId ? mazo(ex.mazoId) : null;
   await attempt(async () => {
     const id = await examenesCol.nextId('e');
-    await saveExamen({ ...registroExamen(ex, { nombre: m?.name || null }), id });
+    await saveExamen({ ...registroExamen(ex, { nombre: ex.nombre || null }), id });
   }, { errorTitle: 'No se pudo guardar el examen en el historial' });
 }
 
@@ -542,6 +598,73 @@ function repasarFalladas() {
   S.examen = null;
   S.sesion = { mazoId, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false, elegida: null };
   Router.go('repaso', mazoId || 'todo') || Router.refresh();
+}
+
+/**
+ * Repasar una carpeta entera: la cola se arma con las fichas de TODOS sus
+ * mazos, con las mismas reglas de siempre (vencidas primero, cupo de nuevas,
+ * azar si está prendido). Es la razón de fondo de agrupar por tema — la
+ * carpeta es la unidad de estudio, el mazo es la unidad de contenido.
+ */
+function repasarCarpeta(id) {
+  const cola = armarCola(fichasDeCarpeta(id), reglas());
+  if (!cola.length) {
+    Toast.show({ title: 'Nada para repasar en esta carpeta', text: 'No hay fichas vencidas ni nuevas por hoy.', icon: 'check' });
+    return;
+  }
+  S.sesion = { mazoId: null, cola, idx: 0, hechas: 0, otraVez: 0, revelada: false, elegida: null };
+  Router.go('repaso', 'todo') || Router.refresh();
+}
+
+/* ══ La lista de mazos, agrupada por carpeta ═════════════════════════════════
+   La misma lista en Inicio y en Mazos. Sin carpetas creadas es la lista plana
+   de siempre — las carpetas no le cobran nada a quien no las usa. */
+
+function listaMazosHTML() {
+  if (!S.carpetas.length) return `<div class="op-list">${S.mazos.map(rowMazo).join('')}</div>`;
+
+  const plegadas = new Set(S.settings.plegadas || []);
+  return agruparMazos(S.mazos, S.carpetas).map(({ carpeta: c, mazos }) => {
+    const id = c ? c.id : 'raiz';
+    const abierta = !plegadas.has(id);
+    const hoy = paraHoy(mazos.flatMap((m) => fichasDe(m.id)), reglas());
+    return `
+      <div class="mn-carpeta${abierta ? '' : ' is-plegada'}" data-carpeta="${esc(id)}">
+        <div class="mn-carpeta__head" role="button" tabindex="0" data-plegar="${esc(id)}" aria-expanded="${abierta}">
+          <i data-icon="chevronDown" data-icon-class="mn-carpeta__chevron"></i>
+          ${c ? '<i data-icon="folder"></i>' : ''}
+          <span class="mn-carpeta__nombre">${esc(c ? c.name : 'Sin carpeta')}</span>
+          <span class="op-meta">${plural(mazos.length, 'mazo')}${hoy ? ` · ${hoy} para hoy` : ''}</span>
+          <span class="op-grow"></span>
+          ${c ? `
+          <div class="op-rowactions">
+            <button class="op-iconbtn op-iconbtn--sm" data-action="repasar-carpeta" data-arg="${esc(c.id)}" data-tip="Repasar la carpeta entera"><i data-icon="zap"></i></button>
+            <button class="op-iconbtn op-iconbtn--sm" data-menu="carpeta" data-menu-arg="${esc(c.id)}" data-tip="Más"><i data-icon="more"></i></button>
+          </div>` : ''}
+        </div>
+        <div class="mn-carpeta__cuerpo"><div class="mn-carpeta__inner">
+          ${mazos.length
+            ? `<div class="op-list">${mazos.map(rowMazo).join('')}</div>`
+            : '<div class="op-meta mn-carpeta__vacia">Vacía. Los mazos se mueven acá desde su menú.</div>'}
+        </div></div>
+      </div>`;
+  }).join('');
+}
+
+/**
+ * Plegar es un ajuste, no un estado de la vista: persiste, y NO repinta —
+ * el CSS anima el cierre en el lugar (misma razón que el botón de azar:
+ * un refresh acá te movería la lista abajo del mouse).
+ */
+function togglePlegada(id) {
+  const plegadas = new Set(S.settings.plegadas || []);
+  const plegada = !plegadas.has(id);
+  plegada ? plegadas.add(id) : plegadas.delete(id);
+  persist({ plegadas: [...plegadas] });
+  document.querySelectorAll(`.mn-carpeta[data-carpeta="${CSS.escape(id)}"]`).forEach((el) => {
+    el.classList.toggle('is-plegada', plegada);
+    el.querySelector('[data-plegar]')?.setAttribute('aria-expanded', String(!plegada));
+  });
 }
 
 /* ══ Vista: Inicio ═══════════════════════════════════════════════════════════ */
@@ -567,7 +690,7 @@ function viewInicio() {
       ${S.mazos.length ? `
         <div class="op-section">
           <div class="op-section__head"><span class="op-section__title">Mazos</span></div>
-          <div class="op-list">${S.mazos.map(rowMazo).join('')}</div>
+          ${listaMazosHTML()}
         </div>`
       : `<div class="op-empty" style="margin:24px auto">${Icons.svg('mnemus')}
           <div class="op-empty__title">Todavía no hay mazos</div>
@@ -612,11 +735,12 @@ function viewMazos() {
     sub: plural(S.mazos.length, 'mazo') + ' · ' + plural(S.fichas.length, 'ficha'),
     actions: `
       <button class="op-btn op-btn--primary op-flashable" data-action="nuevo-mazo"><i data-icon="plus"></i> Nuevo mazo</button>
+      ${S.mazos.length ? '<button class="op-btn op-btn--secondary op-flashable" data-action="nueva-carpeta"><i data-icon="folder"></i> Nueva carpeta</button>' : ''}
       <button class="op-btn op-btn--secondary op-flashable" data-action="importar"><i data-icon="download"></i> Importar</button>
       ${S.mazos.length ? '<button class="op-iconbtn" data-action="exportar-todo" data-tip="Exportar todos los mazos"><i data-icon="upload"></i></button>' : ''}`,
   }) + (S.mazos.length
     ? `<div class="op-scroll op-grow">
-         <div class="op-list">${S.mazos.map(rowMazo).join('')}</div>
+         ${listaMazosHTML()}
          <div style="height:32px"></div>
        </div>`
     : empty({
@@ -641,11 +765,16 @@ function viewMazo(id) {
 
   const fichas = fichasDe(id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   const hoy = paraHoy(fichas, reglas());
+  const c = m.carpeta ? carpeta(m.carpeta) : null;
 
   paint(head({
     title: m.name,
     sub: plural(fichas.length, 'ficha') + (hoy ? ` · ${hoy} para hoy` : ' · al día'),
-    crumbs: [{ label: 'Mazos', view: 'mazos' }, { label: m.name }],
+    crumbs: [
+      { label: 'Mazos', view: 'mazos' },
+      ...(c ? [{ label: c.name, view: 'mazos' }] : []),
+      { label: m.name },
+    ],
     actions: `
       <button class="op-btn op-btn--primary op-flashable" data-action="nueva-ficha" data-arg="${esc(id)}"><i data-icon="plus"></i> Nueva ficha</button>
       ${hoy ? `<button class="op-btn op-btn--secondary op-flashable" data-action="repasar" data-arg="${esc(id)}"><i data-icon="zap"></i> Repasar</button>` : ''}
@@ -889,6 +1018,7 @@ function viewExamen(param) {
   }
 
   const m = ex.mazoId ? mazo(ex.mazoId) : null;
+  const titulo = ex.nombre || 'Examen';
   const total = ex.cola.length;
   const crumbs = m ? [{ label: 'Mazos', view: 'mazos' }, { label: m.name }] : undefined;
 
@@ -925,7 +1055,7 @@ function viewExamen(param) {
     const correctaDe = (f) => opcionesDe(f)[indiceCorrecto(f)] ?? '';
 
     paint(head({
-      title: m ? m.name : 'Examen',
+      title: titulo,
       sub: 'La prueba, corregida',
       crumbs,
     }) + `
@@ -983,7 +1113,7 @@ function viewExamen(param) {
   const ultima = ex.idx === total - 1;
 
   paint(head({
-    title: m ? m.name : 'Examen',
+    title: titulo,
     sub: `Examen · ${ex.idx + 1} de ${total}`,
     crumbs,
     actions: `
@@ -1332,6 +1462,137 @@ async function eliminarMazo(id) {
   await attempt(() => removeMazo(id));
   Toast.show({ title: 'Mazo eliminado', text: m?.name || id, icon: 'trash' });
   Router.current.name === 'mazo' && Router.current.param === id ? Router.go('mazos') : Router.refresh();
+}
+
+async function nuevaCarpetaModal() {
+  const body = document.createElement('div');
+  body.className = 'op-field';
+  body.innerHTML = '<label class="op-field__label">Nombre</label><input class="op-input" placeholder="Anatomía" spellcheck="false">';
+  const input = body.querySelector('input');
+
+  const ok = await Modal.show({
+    title: 'Nueva carpeta',
+    sub: 'Una carpeta agrupa mazos de un tema. Un solo nivel: alcanza para ordenar y no alcanza para esconder.',
+    body,
+    width: 420,
+    actions: [
+      { label: 'Cancelar', value: null },
+      { label: 'Crear', value: true, variant: 'primary', autofocus: true },
+    ],
+  });
+  if (!ok) return null;
+  const name = input.value.trim();
+  if (!name) return null;
+
+  return attempt(async () => {
+    const id = await carpetasCol.nextId('c');
+    const saved = await saveCarpeta({ id, name, createdAt: Date.now() });
+    Toast.show({ title: 'Carpeta creada', text: `${saved.name} · movés mazos desde su menú.`, icon: 'folder' });
+    Router.refresh();
+    return saved;
+  }, { errorTitle: 'No se pudo crear la carpeta' });
+}
+
+async function renombrarCarpeta(id) {
+  const c = carpeta(id);
+  if (!c) return;
+  const body = document.createElement('div');
+  body.className = 'op-field';
+  body.innerHTML = '<label class="op-field__label">Nombre</label><input class="op-input" spellcheck="false">';
+  const input = body.querySelector('input');
+  input.value = c.name;
+
+  const ok = await Modal.show({
+    title: 'Renombrar la carpeta',
+    body,
+    width: 420,
+    actions: [{ label: 'Cancelar', value: null }, { label: 'Guardar', value: true, variant: 'primary' }],
+  });
+  if (!ok) return;
+  const name = input.value.trim();
+  if (!name || name === c.name) return;
+  await attempt(() => saveCarpeta({ ...c, name }));
+  Router.refresh();
+}
+
+async function eliminarCarpeta(id) {
+  const c = carpeta(id);
+  const n = mazosEnCarpeta(id).length;
+  const ok = await Modal.confirm({
+    title: `¿Eliminar la carpeta “${c?.name || id}”?`,
+    sub: n
+      ? `${plural(n, 'mazo')} quedan sueltos, con todas sus fichas: la carpeta es organización, no contenido.`
+      : 'Está vacía; no se pierde nada.',
+    confirmLabel: 'Eliminar',
+    danger: true,
+  });
+  if (!ok) return;
+  await attempt(() => removeCarpeta(id));
+  Toast.show({ title: 'Carpeta eliminada', text: n ? `Sus ${plural(n, 'mazo')} siguen en la lista, sueltos.` : c?.name || id, icon: 'trash' });
+  Router.refresh();
+}
+
+/** Mover un mazo: elegís el destino de una lista y confirmás — el mismo
+    patrón del resto de los modales, sin menús anidados. */
+async function moverMazoModal(mazoId) {
+  const m = mazo(mazoId);
+  if (!m) return;
+  if (!S.carpetas.length) {
+    const creada = await nuevaCarpetaModal();
+    if (!creada) return;
+    await attempt(() => asignarCarpeta(mazoId, creada.id));
+    Toast.show({ title: 'Mazo movido', text: `${m.name} → ${creada.name}`, icon: 'folder' });
+    Router.refresh();
+    return;
+  }
+
+  const actual = m.carpeta || null;
+  let elegida = actual;
+  const opciones = [
+    ...[...S.carpetas].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+      .map((c) => ({ id: c.id, label: c.name, icon: 'folder' })),
+    { id: null, label: 'Sin carpeta', icon: 'inbox' },
+  ];
+
+  const body = document.createElement('div');
+  body.className = 'op-list';
+  body.innerHTML = opciones.map((o) => `
+    <div class="op-listitem${(o.id || null) === actual ? ' is-selected' : ''}" role="button" tabindex="0" data-destino="${esc(o.id || '')}">
+      <i data-icon="${o.icon}"></i>
+      <div class="op-listitem__main"><span class="op-listitem__title">${esc(o.label)}</span></div>
+      <span class="mn-mover__marca">${(o.id || null) === actual ? Icons.svg('check', 'op-icon--sm') : ''}</span>
+    </div>`).join('');
+  Icons.mount(body);
+
+  body.addEventListener('click', (e) => {
+    const fila = e.target.closest('[data-destino]');
+    if (!fila) return;
+    elegida = fila.dataset.destino || null;
+    body.querySelectorAll('[data-destino]').forEach((el) => {
+      const es = el === fila;
+      el.classList.toggle('is-selected', es);
+      el.querySelector('.mn-mover__marca').innerHTML = es ? Icons.svg('check', 'op-icon--sm') : '';
+    });
+  });
+
+  const ok = await Modal.show({
+    title: `Mover “${m.name}”`,
+    sub: 'La carpeta organiza; el mazo y su historial no se tocan.',
+    body,
+    width: 420,
+    actions: [
+      { label: 'Cancelar', value: null },
+      { label: 'Mover', value: true, variant: 'primary', autofocus: true },
+    ],
+  });
+  if (!ok || elegida === actual) return;
+  await attempt(() => asignarCarpeta(mazoId, elegida));
+  Toast.show({
+    title: 'Mazo movido',
+    text: `${m.name} → ${elegida ? carpeta(elegida)?.name : 'sin carpeta'}`,
+    icon: 'folder',
+  });
+  Router.refresh();
 }
 
 /**
@@ -1701,11 +1962,23 @@ const MENUS = {
     { label: 'Abrir', icon: 'external', onSelect: () => Router.go('mazo', id) },
     { label: 'Repasar', icon: 'zap', onSelect: () => iniciarSesion(id) },
     { label: 'Tomar examen…', icon: 'examen', onSelect: () => iniciarExamen(id) },
+    { label: 'Mover a carpeta…', icon: 'folder', onSelect: () => moverMazoModal(id) },
     { label: 'Renombrar…', icon: 'edit', onSelect: () => renombrarMazo(id) },
     { label: 'Exportar…', icon: 'upload', onSelect: () => exportarMazos([mazo(id)].filter(Boolean)) },
     { label: 'Copiar id', icon: 'copy', onSelect: () => copy(id) },
     { sep: true },
     { label: 'Eliminar', icon: 'trash', danger: true, onSelect: () => eliminarMazo(id) },
+  ],
+  carpeta: (id) => [
+    { label: 'Repasar la carpeta', icon: 'zap', onSelect: () => repasarCarpeta(id) },
+    {
+      label: 'Tomar examen…', icon: 'examen',
+      onSelect: () => iniciarExamen(null, { pool: fichasDeCarpeta(id), nombre: carpeta(id)?.name }),
+    },
+    { label: 'Exportar…', icon: 'upload', onSelect: () => exportarMazos(mazosEnCarpeta(id)) },
+    { label: 'Renombrar…', icon: 'edit', onSelect: () => renombrarCarpeta(id) },
+    { sep: true },
+    { label: 'Eliminar (los mazos quedan)', icon: 'trash', danger: true, onSelect: () => eliminarCarpeta(id) },
   ],
   ficha: (id) => [
     { label: 'Editar…', icon: 'edit', onSelect: () => fichaModal(null, id) },
@@ -1759,9 +2032,11 @@ function wireShell() {
       const a = act.dataset.action;
       const arg = act.dataset.arg || null;
       if (a === 'nuevo-mazo') nuevoMazoModal();
+      if (a === 'nueva-carpeta') nuevaCarpetaModal();
       if (a === 'nueva-ficha') fichaModal(arg || Router.param);
       if (a === 'editar-ficha') fichaModal(null, arg);
       if (a === 'repasar') iniciarSesion(arg);
+      if (a === 'repasar-carpeta') repasarCarpeta(arg);
       if (a === 'examen') iniciarExamen(arg);
       if (a === 'abandonar-examen') abandonarExamen();
       if (a === 'ver-examen') verExamen(arg);
@@ -1770,7 +2045,13 @@ function wireShell() {
       if (a === 'exportar-todo') exportarMazos(S.mazos);
       if (a === 'azar') setAzar(!S.settings.azar);
       if (a === 'terminar') terminarSesion();
+      return;
     }
+
+    /* Plegar va al final: un click en las acciones DE ADENTRO del encabezado
+       (repasar, menú) ya se atendió arriba y no debe plegar de rebote. */
+    const plegar = e.target.closest('[data-plegar]');
+    if (plegar) togglePlegada(plegar.dataset.plegar);
   });
 
   // Enter y Espacio sobre una fila: la lista tiene que ser usable sin mouse.
@@ -1786,6 +2067,12 @@ function wireShell() {
     if (examen) {
       e.preventDefault();
       verExamen(examen.dataset.arg);
+      return;
+    }
+    const plegar = e.target.closest?.('[data-plegar]');
+    if (plegar && e.target === plegar) {
+      e.preventDefault();
+      togglePlegada(plegar.dataset.plegar);
     }
   });
 }
@@ -1834,12 +2121,21 @@ function registerCommands() {
       hint: S.settings.azar ? 'al azar' : 'por prioridad',
       run: () => setAzar(!S.settings.azar),
     },
+    ...S.carpetas.map((c) => ({
+      id: `repc-${c.id}`, group: 'Repasar', icon: 'zap', label: `Repasar la carpeta ${c.name}`, hint: c.id,
+      run: () => repasarCarpeta(c.id),
+    })),
     { id: 'examen', group: 'Examen', icon: 'examen', label: 'Tomar examen de todo', run: () => iniciarExamen(null) },
     ...S.mazos.map((m) => ({
       id: `ex-${m.id}`, group: 'Examen', icon: 'examen', label: `Examen de ${m.name}`, hint: m.id,
       run: () => iniciarExamen(m.id),
     })),
+    ...S.carpetas.map((c) => ({
+      id: `exc-${c.id}`, group: 'Examen', icon: 'examen', label: `Examen de la carpeta ${c.name}`, hint: c.id,
+      run: () => iniciarExamen(null, { pool: fichasDeCarpeta(c.id), nombre: c.name }),
+    })),
     { id: 'nuevo-mazo', group: 'Crear', icon: 'plus', label: 'Nuevo mazo', run: nuevoMazoModal },
+    { id: 'nueva-carpeta', group: 'Crear', icon: 'folder', label: 'Nueva carpeta', run: nuevaCarpetaModal },
     { id: 'importar', group: 'Crear', icon: 'download', label: 'Importar un mazo…', run: importarModal },
     ...(S.mazos.length ? [
       { id: 'exportar-todo', group: 'Compartir', icon: 'upload', label: 'Exportar todos los mazos…', run: () => exportarMazos(S.mazos) },

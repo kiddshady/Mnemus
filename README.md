@@ -94,6 +94,25 @@ El historial es tuyo y es editable: cada examen acepta una **nota al margen**
 cualquier entrada se puede eliminar. Como todo en Mnemus, cada registro es un
 archivo JSON en tu carpeta de datos.
 
+## Las carpetas
+
+Cuando los mazos se acumulan, se agrupan en **carpetas** — un solo nivel, a
+propósito: con lo que junta una persona estudiando, un nivel ordena todo y dos
+niveles esconden la mitad. Un mazo vive en una carpeta o en ninguna, y quien no
+usa carpetas ve la lista plana de siempre.
+
+Se crean desde la vista Mazos o la paleta; un mazo se mueve desde su menú
+(**Mover a carpeta…**). Cada sección se **pliega y despliega** con un click, y
+el pliegue persiste — la carpeta que plegaste ayer sigue plegada hoy. Mover un
+mazo no toca su fecha de edición: organizar no es editar.
+
+La carpeta es la **unidad de estudio**: desde su encabezado o su menú se repasa
+la carpeta entera (todas las fichas de sus mazos, con las reglas de siempre) y
+se le toma examen. También se exporta de una.
+
+Eliminar una carpeta **suelta** sus mazos a la raíz, nunca se los lleva: la
+carpeta es organización, no contenido.
+
 ## Pasar un mazo a otra persona
 
 Desde el menú de un mazo, **Exportar…**; o el botón de exportar en la vista Mazos
@@ -113,7 +132,7 @@ mismo archivo no pisa nada, y un mazo de afuera no puede chocar con los tuyos.
 npm install
 npm run dev      # con la consola del renderer en la terminal
 npm start
-npm test         # unidad: SM-2, tipos de ficha, examen, almacenamiento, formato, tokens
+npm test         # unidad: SM-2, tipos de ficha, examen, carpetas, almacenamiento, formato, tokens
 npm run smoke    # monta la app de verdad en Electron y la recorre
 npm run dist     # instalador NSIS en dist/
 ```
@@ -166,6 +185,7 @@ data/
   mazos/m-0001.json     un archivo por mazo
   fichas/f-0001.json    un archivo por ficha, con su historial de repaso
   examenes/e-0001.json  un archivo por examen rendido
+  carpetas/c-0001.json  un archivo por carpeta
 ```
 
 Un archivo por ítem y no un array gigante: guardar una ficha no reescribe las
@@ -183,6 +203,7 @@ src/update.cjs        actualización automática
 renderer/js/srs.js    el motor SM-2, puro y testeable sin DOM
 renderer/js/ficha.js  los tipos de ficha, también puro
 renderer/js/examen.js el modo examen: la muestra, el puntaje y el veredicto
+renderer/js/carpetas.js  la agrupación de mazos en carpetas
 renderer/js/app.js    las vistas
 renderer/css/         el sistema de diseño
 ```

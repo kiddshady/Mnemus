@@ -317,6 +317,71 @@
 .mn-fin .op-icon { width: 34px; height: 34px; color: var(--op-text-3); stroke-width: 1; }
 .mn-fin__cifras { display: flex; gap: var(--op-8); margin-top: var(--op-3); }
 
+/* ── Las carpetas ────────────────────────────────────────────────────────────
+   Una sección plegable por carpeta. El pliegue anima con grid-template-rows
+   0fr→1fr — alto desconocido sin medirlo y sin animar `height`. El estado
+   plegado persiste en los ajustes (ver togglePlegada en app.js). */
+.mn-carpeta { margin-bottom: var(--op-2); }
+
+.mn-carpeta__head {
+  display: flex;
+  align-items: center;
+  gap: var(--op-2);
+  min-height: 36px;
+  padding: var(--op-1) var(--op-2);
+  border-radius: var(--op-r-md);
+  cursor: default;
+  user-select: none;
+  transition: var(--tr-surface);
+}
+.mn-carpeta__head:hover { background: var(--op-wash-1); }
+.mn-carpeta__head .op-icon { width: 14px; height: 14px; color: var(--op-text-3); }
+
+.mn-carpeta__chevron { transition: transform var(--op-t-3) var(--op-ease); }
+.mn-carpeta.is-plegada .mn-carpeta__chevron { transform: rotate(-90deg); }
+
+.mn-carpeta__nombre {
+  font-size: var(--op-fs-13);
+  font-weight: var(--op-w-medium);
+}
+
+/* Las acciones del encabezado aparecen con el mouse encima, como en las filas. */
+.mn-carpeta__head .op-rowactions {
+  opacity: 0;
+  transition: opacity var(--op-t-2) var(--op-ease-soft);
+}
+.mn-carpeta__head:hover .op-rowactions,
+.mn-carpeta__head:focus-within .op-rowactions { opacity: 1; }
+
+.mn-carpeta__cuerpo {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--op-t-4) var(--op-ease);
+}
+.mn-carpeta.is-plegada .mn-carpeta__cuerpo { grid-template-rows: 0fr; }
+
+.mn-carpeta__inner {
+  overflow: hidden;
+  min-height: 0;
+  opacity: 1;
+  transition: opacity var(--op-t-3) var(--op-ease);
+}
+.mn-carpeta.is-plegada .mn-carpeta__inner { opacity: 0; }
+
+/* Los mazos alinean con el NOMBRE de la carpeta (chevron + gap), no con el
+   chevron: la sangría es la jerarquía. */
+.mn-carpeta__inner .op-list { padding-left: 22px; }
+.mn-carpeta__vacia { padding: var(--op-2) var(--op-2) var(--op-3) 22px; }
+
+/* La marca del destino en el modal de mover: lugar reservado, como siempre. */
+.mn-mover__marca {
+  flex: 0 0 auto;
+  width: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--op-accent);
+}
+
 /* ── El examen ───────────────────────────────────────────────────────────────
    La misma hoja del repaso con otra contabilidad alrededor: un marcador en
    vez del «otra vez», una resolución binaria en vez de cuatro grados, y al

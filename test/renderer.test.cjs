@@ -587,6 +587,95 @@ app.whenReady().then(async () => {
   ok('y del disco', (await js(`window.opal.col('examenes').list()
     .then(l => l.filter(x => x.mazo === ${JSON.stringify(mazoId)}).length)`)) === 0);
 
+  /* Las carpetas. Lo que se mide con lupa son las dos promesas de
+     neutralidad: mover un mazo NO toca su updatedAt (organizar no es
+     editar, y archivar no debería treparlo a "reciente"), y eliminar la
+     carpeta SUELTA sus mazos en vez de llevárselos. El pliegue es un
+     ajuste: tiene que quedar en el disco, no en la vista. */
+  console.log('\n4-nonies. Carpetas: mover, plegar, repasar y eliminar sin arrastrar');
+  await click('[data-view="mazos"]');
+  await sleep(700);
+  ok('la vista Mazos ofrece crear carpeta', await js(`!!document.querySelector('[data-action="nueva-carpeta"]')`));
+  await click('[data-action="nueva-carpeta"]');
+  await sleep(600);
+  await js(`(() => { document.querySelector('.op-modal input.op-input').value = 'CarpetaHumo'; return true; })()`);
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1000);
+
+  const carpetaHumo = await js(`window.opal.col('carpetas').list().then(l => l.find(c => c.name === 'CarpetaHumo') || null)`);
+  ok('la carpeta quedó en disco con id asignado', !!carpetaHumo, JSON.stringify(carpetaHumo));
+  ok('y su sección aparece, vacía y a la vista', await js(`(() => {
+    const s = document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo?.id || '')}]');
+    return !!s && s.textContent.includes('CarpetaHumo');
+  })()`));
+
+  const updatedAntes = await js(`window.opal.col('mazos').get(${JSON.stringify(mazoId)}).then(m => m.updatedAt)`);
+  await js(`(() => {
+    const fila = document.querySelector('[data-open-mazo=${JSON.stringify(mazoId)}]');
+    fila.querySelector('[data-menu="mazo"]').click(); return true; })()`);
+  await sleep(500);
+  ok('el menú del mazo ofrece moverlo', await js(`(() => {
+    const it = [...document.querySelectorAll('.op-menuitem')].find(e => e.textContent.includes('Mover a carpeta'));
+    if (!it) return false; it.click(); return true; })()`));
+  await sleep(600);
+  await click(`[data-destino="${carpetaHumo.id}"]`);
+  await sleep(300);
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1000);
+
+  const movido = await js(`window.opal.col('mazos').get(${JSON.stringify(mazoId)})`);
+  ok('el mazo quedó en la carpeta, en disco', movido?.carpeta === carpetaHumo.id, JSON.stringify(movido?.carpeta));
+  ok('mover NO tocó updatedAt: organizar no es editar',
+    movido?.updatedAt === updatedAntes, `${updatedAntes} → ${movido?.updatedAt}`);
+  ok('y la fila vive adentro de la sección', await js(`(() => {
+    const s = document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}]');
+    return !!s && !!s.querySelector('[data-open-mazo=${JSON.stringify(mazoId)}]');
+  })()`));
+
+  await js(`(() => { document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}] [data-plegar]').click(); return true; })()`);
+  await sleep(700);
+  ok('plegar pliega en el lugar, sin repintar la vista',
+    await js(`document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}]').classList.contains('is-plegada')`));
+  // El computado, no la clase: el <i data-icon> se REEMPLAZA por un SVG al
+  // montar, y una clase puesta en el atributo equivocado se pierde ahí.
+  ok('y el chevron rota de verdad (la clase sobrevive al montaje del ícono)', await js(`(() => {
+    const ch = document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}] .mn-carpeta__chevron');
+    return !!ch && getComputedStyle(ch).transform !== 'none';
+  })()`));
+  ok('y el pliegue queda en los ajustes, en disco',
+    (await js(`window.opal.settings.get().then(s => (s.plegadas || []).includes(${JSON.stringify(carpetaHumo.id)}))`)) === true);
+  await js(`(() => { document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}] [data-plegar]').click(); return true; })()`);
+  await sleep(700);
+  ok('desplegar lo saca de los ajustes',
+    (await js(`window.opal.settings.get().then(s => (s.plegadas || []).includes(${JSON.stringify(carpetaHumo.id)}))`)) === false);
+
+  await js(`(() => { document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}] [data-menu="carpeta"]').click(); return true; })()`);
+  await sleep(500);
+  ok('el menú de la carpeta ofrece repasarla entera', await js(`(() => {
+    const it = [...document.querySelectorAll('.op-menuitem')].find(e => e.textContent.includes('Repasar la carpeta'));
+    if (!it) return false; it.click(); return true; })()`));
+  await sleep(1000);
+  ok('y la sesión abre con una ficha de sus mazos', await js(`!!document.querySelector('.mn-ficha')`));
+  escape();
+  await sleep(900);
+
+  await click('[data-view="mazos"]');
+  await sleep(700);
+  await js(`(() => { document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}] [data-menu="carpeta"]').click(); return true; })()`);
+  await sleep(500);
+  await js(`(() => {
+    const it = [...document.querySelectorAll('.op-menuitem')].find(e => e.textContent.includes('Eliminar'));
+    it.click(); return true; })()`);
+  await sleep(600);
+  await click('.op-modal__foot .op-btn--danger-solid');
+  await sleep(1100);
+  ok('la carpeta se fue del disco',
+    (await js(`window.opal.col('carpetas').list().then(l => l.some(c => c.id === ${JSON.stringify(carpetaHumo.id)}))`)) === false);
+  const suelto = await js(`window.opal.col('mazos').get(${JSON.stringify(mazoId)})`);
+  ok('pero el mazo QUEDA, suelto y con sus fichas', !!suelto && !suelto.carpeta, JSON.stringify(suelto?.carpeta));
+  ok('y su sección desapareció de la lista',
+    !(await js(`!!document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}]')`)));
+
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('[data-view="inicio"]');
   await sleep(700);
@@ -926,6 +1015,9 @@ app.whenReady().then(async () => {
     for (const eid of exs) await js(`window.opal.col('examenes').remove(${JSON.stringify(eid)})`);
     await js(`window.opal.col('mazos').remove(${JSON.stringify(id)})`);
   }
+  // Y las carpetas del test, si un aborto a mitad de camino dejó alguna.
+  const carpetasSucias = await js(`window.opal.col('carpetas').list().then(l => l.filter(c => c.name === 'CarpetaHumo').map(c => c.id))`);
+  for (const cid of carpetasSucias) await js(`window.opal.col('carpetas').remove(${JSON.stringify(cid)})`);
   await js(`window.opal.settings.save({ nuevasPorDia: 10 })`);
 
   console.log(`\n═══ ${pass} ok · ${fail} fallas ═══`);
