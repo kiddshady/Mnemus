@@ -63,6 +63,13 @@ app.whenReady().then(async () => {
   const mazosSemilla = await js(`window.opal.col('mazos').list().then(l => l.length)`);
   ok('hay al menos un mazo (la semilla o los del usuario)', mazosSemilla >= 1, String(mazosSemilla));
 
+  /* El diario de actividad del día REAL se fotografía antes de calificar
+     nada: el test va a sumarle repasos, y al final lo restaura tal cual —
+     los gráficos del usuario no pueden quedar inflados por un test. */
+  const claveHoy = await js(`import('./js/stats.js').then(m => m.claveDia(Date.now()))`);
+  const idHoy = `d-${claveHoy}`;
+  const actividadPrevia = await js(`window.opal.col('actividad').get(${JSON.stringify(idHoy)}).catch(() => null)`);
+
   console.log('\n2. Crear por la UI real: mazo → ficha → disco');
   await click('[data-action="nuevo-mazo"]');
   await sleep(600);
@@ -735,6 +742,50 @@ app.whenReady().then(async () => {
     return !!mk && !!mk.closest('[data-tip]')?.dataset.tip;
   })()`));
 
+  /* Las estadísticas. La aserción que importa es de INTEGRACIÓN: el smoke
+     calificó exactamente dos veces (un «Bien» en la sección 4, un «Otra
+     vez» en 4-bis), así que el diario del día tiene que haber crecido
+     exactamente +2 repasos y +1 otra vez respecto de la fotografía inicial
+     — ni uno más, ni uno menos, ni un doble conteo. */
+  console.log('\n4-undecies. Estadísticas: el diario suma justo y la vista dibuja');
+  const actividadTras = await js(`window.opal.col('actividad').get(${JSON.stringify(idHoy)}).catch(() => null)`);
+  const repasosPrevios = actividadPrevia?.repasos || 0;
+  const otraVezPrevias = actividadPrevia?.otraVez || 0;
+  ok('cada calificación quedó anotada en el diario del día: +2 repasos',
+    actividadTras?.repasos === repasosPrevios + 2, `${repasosPrevios} → ${actividadTras?.repasos}`);
+  ok('y el «Otra vez» quedó contado: +1',
+    actividadTras?.otraVez === otraVezPrevias + 1, `${otraVezPrevias} → ${actividadTras?.otraVez}`);
+
+  await click('[data-view="stats"]');
+  await sleep(1000);
+  ok('la vista Estadísticas pinta', (await js(`document.getElementById('view').children.length`)) > 0);
+  ok('y queda activa en el rail', await js(`!!document.querySelector('[data-view="stats"].is-active')`));
+  ok('el gráfico de actividad tiene sus 30 columnas',
+    (await js(`document.querySelectorAll('.mn-graf')[0].querySelectorAll('.mn-graf__col').length`)) === 30);
+  ok('la barra de hoy lleva el acento y refleja lo repasado', await js(`(() => {
+    const cols = [...document.querySelectorAll('.mn-graf')[0].querySelectorAll('.mn-graf__col')];
+    const hoy = cols[cols.length - 1].querySelector('.mn-graf__barra');
+    return hoy.classList.contains('is-hoy') && !hoy.classList.contains('is-cero');
+  })()`));
+  ok('cada columna explica su día con tooltip', await js(`(() => {
+    const cols = [...document.querySelectorAll('.mn-graf__col')];
+    return cols.length > 0 && cols.every((c) => !!c.dataset.tip);
+  })()`));
+  ok('la carga próxima tiene sus 14 columnas',
+    (await js(`document.querySelectorAll('.mn-graf')[1].querySelectorAll('.mn-graf__col').length`)) === 14);
+  const distSmoke = await js(`(() => {
+    const leyenda = [...document.querySelectorAll('.mn-dist__leyenda .op-status')];
+    const segs = document.querySelectorAll('.mn-dist__seg').length;
+    return { estados: leyenda.length, segs };
+  })()`);
+  ok('la distribución nombra sus cuatro estados', distSmoke.estados === 4, JSON.stringify(distSmoke));
+  ok('y ningún segmento aparece sin fichas que lo respalden', distSmoke.segs <= 4 && distSmoke.segs >= 1);
+  // countTo ya asentó (700ms): el texto de la racha es un número real.
+  ok('la racha marca al menos un día (hoy se repasó)', await js(`(() => {
+    const el = document.getElementById('st-racha');
+    return !!el && parseInt(el.textContent, 10) >= 1;
+  })()`), String(await js(`document.getElementById('st-racha')?.textContent`)));
+
   console.log('\n5. Overlays: dónde caen, no solo si existen');
   await click('[data-view="inicio"]');
   await sleep(700);
@@ -1077,6 +1128,10 @@ app.whenReady().then(async () => {
   // Y las carpetas del test, si un aborto a mitad de camino dejó alguna.
   const carpetasSucias = await js(`window.opal.col('carpetas').list().then(l => l.filter(c => c.name === 'CarpetaHumo').map(c => c.id))`);
   for (const cid of carpetasSucias) await js(`window.opal.col('carpetas').remove(${JSON.stringify(cid)})`);
+  // El diario del día vuelve a su fotografía inicial: los repasos del test
+  // no son estudio del usuario y sus gráficos no pueden quedar inflados.
+  if (actividadPrevia) await js(`window.opal.col('actividad').save(${JSON.stringify(actividadPrevia)})`);
+  else await js(`window.opal.col('actividad').remove(${JSON.stringify(idHoy)}).catch(() => null)`);
   await js(`window.opal.settings.save({ nuevasPorDia: 10 })`);
 
   console.log(`\n═══ ${pass} ok · ${fail} fallas ═══`);

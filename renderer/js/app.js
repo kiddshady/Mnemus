@@ -20,7 +20,7 @@ import { Tooltip, Toast, Menu, Modal } from './overlays.js';
 import Palette from './palette.js';
 import Router from './router.js';
 import { initClickFlash, initScrollFades, scrollFade, raf2, countTo, exit, bindStepper, bindSwitcher } from './motion.js';
-import { viewEl, esc, paint, head, empty, mark, setStateLabels, attempt, copy, colorToken } from './ui.js';
+import { viewEl, esc, paint, head, empty, mark, status, setStateLabels, attempt, copy, colorToken } from './ui.js';
 import { relTime, plural } from './format.js';
 import { designHTML, wireDesign } from './design-view.js';
 import {
@@ -41,12 +41,17 @@ import {
   registro as registroExamen, promedio as promedioExamenes,
 } from './examen.js';
 import { agrupar as agruparMazos } from './carpetas.js';
+import {
+  claveDia, actividadPorDia, racha, cargaProxima,
+  distribucion, masOlvidadas, notasExamenes,
+} from './stats.js';
 
 const api = window.opal;
 const mazosCol = api.col('mazos');
 const fichasCol = api.col('fichas');
 const examenesCol = api.col('examenes');
 const carpetasCol = api.col('carpetas');
+const actividadCol = api.col('actividad');
 
 /* La marca y los símbolos del dominio. El set base no se edita: se extiende. */
 Icons.add({
@@ -59,6 +64,8 @@ Icons.add({
      cae del vértice derecho. */
   examen: '<path d="M1.7 6.3 8 3.3l6.3 3L8 9.3z"/>'
       + '<path d="M4.2 8v2.8c0 1.05 1.7 1.9 3.8 1.9s3.8-.85 3.8-1.9V8"/><path d="M14.3 6.3v3.2"/>',
+  /* Estadísticas: tres barras que crecen sobre su base. */
+  grafico: '<path d="M2.4 13.4h11.2"/><path d="M4.6 13.4V9.6M8 13.4V6M11.4 13.4V3.2"/>',
 });
 
 /* Las palabras del dominio sobre los estados del sistema. */
@@ -77,6 +84,8 @@ const S = {
   carpetas: [],
   /** El historial: un registro por examen terminado (ver registro() en examen.js). */
   examenes: [],
+  /** La actividad de repaso: un contador por día calendario (d-AAAAMMDD). */
+  actividad: [],
   lastSaved: null,
   /** La sesión de repaso viva, o null. */
   sesion: null,
@@ -85,9 +94,9 @@ const S = {
 };
 
 async function loadAll() {
-  const [info, settings, mazos, fichas, examenes, carpetas] = await Promise.all([
+  const [info, settings, mazos, fichas, examenes, carpetas, actividad] = await Promise.all([
     api.info(), api.settings.get(), mazosCol.list(), fichasCol.list(),
-    examenesCol.list(), carpetasCol.list(),
+    examenesCol.list(), carpetasCol.list(), actividadCol.list(),
   ]);
   S.info = info;
   S.settings = settings;
@@ -95,6 +104,7 @@ async function loadAll() {
   S.fichas = fichas;
   S.examenes = examenes;
   S.carpetas = carpetas;
+  S.actividad = actividad;
 }
 
 async function saveMazo(mazo) {
@@ -315,6 +325,26 @@ async function setAzar(azar) {
   });
 }
 
+/**
+ * El diario de estudio: un contador por día calendario, que crece con cada
+ * calificación. Es lo ÚNICO que la app suma sobre la marcha — la srs de cada
+ * ficha guarda su estado actual pero no su historia, y sin este registro los
+ * gráficos de actividad no tendrían de dónde salir.
+ */
+async function anotarActividad(q) {
+  const id = `d-${claveDia(Date.now())}`;
+  await attempt(async () => {
+    const previo = S.actividad.find((a) => a.id === id)
+      || { id, dia: id.slice(2), repasos: 0, otraVez: 0 };
+    const saved = await actividadCol.save({
+      ...previo,
+      repasos: previo.repasos + 1,
+      otraVez: previo.otraVez + (q < 3 ? 1 : 0),
+    });
+    S.actividad = [saved, ...S.actividad.filter((a) => a.id !== id)];
+  }, { errorTitle: 'No se pudo anotar la actividad' });
+}
+
 async function calificarActual(q) {
   const ses = S.sesion;
   if (!ses || !ses.revelada) return;
@@ -323,6 +353,7 @@ async function calificarActual(q) {
 
   const saved = await attempt(() => saveFicha({ ...actual, srs }), { errorTitle: 'No se pudo guardar el repaso' });
   if (!saved) return;
+  await anotarActividad(q);
 
   ses.hechas += 1;
   if (q < 3) {
@@ -1307,6 +1338,153 @@ async function eliminarExamen(id) {
   Router.refresh();
 }
 
+/* ══ Vista: Estadísticas ═════════════════════════════════════════════════════
+   Los números del estudio, dibujados con las piezas de la casa: barras HTML
+   con tooltips del sistema, una sola serie por gráfico (nada que exija
+   leyendas de colores), y el acento reservado para UNA cosa — el presente:
+   la barra de hoy, la última nota. Los datos salen de stats.js, puro. */
+
+function viewStats() {
+  const dist = distribucion(S.fichas);
+  const act = actividadPorDia(S.actividad, { dias: 30 });
+  const rachaViva = racha(S.actividad);
+  const carga = cargaProxima(S.fichas, { dias: 14 });
+  const notas = notasExamenes(S.examenes);
+  const olvidadas = masOlvidadas(S.fichas, { top: 5 });
+
+  const hoyClave = claveDia(Date.now());
+  const alDiaPct = S.fichas.length ? Math.round((dist.alDia / S.fichas.length) * 100) : 0;
+  const totalAct = act.reduce((n, d) => n + d.repasos, 0);
+  const fCorta = (ts) => new Date(ts).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+
+  /* Un gráfico de barras es una fila de columnas: la columna entera es el
+     blanco del mouse (más grande que la marca, como pide la usabilidad) y
+     la barra crece adentro. Los días en cero muestran su punto base — un
+     gráfico que esconde los días vacíos convierte una semana floja en una
+     racha apretada. */
+  const barras = (serie, valorDe, tipDe, { max, resaltar = () => false }) => `
+    <div class="mn-graf__barras">
+      ${serie.map((d, i) => `
+        <div class="mn-graf__col" data-tip="${esc(tipDe(d))}">
+          <div class="mn-graf__barra${resaltar(d) ? ' is-hoy' : ''}${valorDe(d) ? '' : ' is-cero'}"
+               style="--h:${Math.max(2, Math.round((valorDe(d) / max) * 100))}%;--i:${i}"></div>
+        </div>`).join('')}
+    </div>`;
+
+  const maxAct = Math.max(1, ...act.map((d) => d.repasos));
+  const maxCarga = Math.max(1, ...carga.map((d) => d.vencen));
+
+  const segmentos = [
+    ['nuevas', 'idle', dist.nuevas, 'nuevas'],
+    ['aprendiendo', 'waiting', dist.aprendiendo, 'aprendiendo'],
+    ['vencidas', 'queued', dist.vencidas, 'vencidas'],
+    ['aldia', 'done', dist.alDia, 'al día'],
+  ];
+
+  const puntosLinea = notas.map((p, i) => ({
+    ...p,
+    x: notas.length === 1 ? 50 : (i / (notas.length - 1)) * 100,
+  }));
+
+  paint(head({
+    title: 'Estadísticas',
+    sub: 'Lo que los repasos van dejando: el diario, la deuda que viene y las notas',
+  }) + `
+    <div class="op-scroll op-grow">
+      <div class="op-row" style="gap:40px;margin-bottom:28px;flex-wrap:wrap">
+        <div class="op-stat"><span class="op-stat__value op-num" id="st-fichas">0</span><span class="op-stat__label">Fichas</span></div>
+        <div class="op-stat"><span class="op-stat__value op-num" id="st-aldia">0</span><span class="op-stat__label">Al día</span></div>
+        <div class="op-stat"><span class="op-stat__value op-num" id="st-racha">0</span><span class="op-stat__label">Racha</span></div>
+        ${notas.length ? `<div class="op-stat"><span class="op-stat__value op-num" id="st-prom">0</span><span class="op-stat__label">Promedio de exámenes</span></div>` : ''}
+      </div>
+
+      <div class="op-section">
+        <div class="op-section__head"><span class="op-section__title">Actividad</span>
+          <span class="op-meta">últimos 30 días · ${plural(totalAct, 'repaso')}</span></div>
+        <div class="op-card"><div class="op-card__body">
+          ${totalAct ? '' : `<p class="op-meta" style="margin:0 0 12px">El diario arranca hoy: cada repaso que hagas
+            de ahora en más queda anotado acá, día por día.</p>`}
+          <div class="mn-graf">
+            ${barras(act, (d) => d.repasos,
+    (d) => `${fCorta(d.ts)} · ${plural(d.repasos, 'repaso')}${d.otraVez ? ` · ${d.otraVez} otra vez` : ''}`,
+    { max: maxAct, resaltar: (d) => d.dia === hoyClave })}
+            <div class="mn-graf__eje"><span>hace 30 días</span><span>hoy</span></div>
+          </div>
+        </div></div>
+      </div>
+
+      <div class="op-section">
+        <div class="op-section__head"><span class="op-section__title">Lo que viene</span>
+          <span class="op-meta">vencimientos de los próximos 14 días, sin contar nuevas</span></div>
+        <div class="op-card"><div class="op-card__body">
+          <div class="mn-graf">
+            ${barras(carga, (d) => d.vencen,
+    (d) => `${fCorta(d.ts)} · ${d.vencen ? `vencen ${d.vencen}` : 'no vence nada'}`,
+    { max: maxCarga, resaltar: (d) => d.dia === hoyClave })}
+            <div class="mn-graf__eje"><span>hoy</span><span>en dos semanas</span></div>
+          </div>
+          ${carga[0].vencen ? `<p class="op-meta" style="margin:12px 0 0">La barra de hoy incluye todo lo ya vencido: la deuda no vive en el pasado — te espera hoy.</p>` : ''}
+        </div></div>
+      </div>
+
+      <div class="op-section">
+        <div class="op-section__head"><span class="op-section__title">El estado de las fichas</span></div>
+        <div class="op-card"><div class="op-card__body">
+          ${S.fichas.length ? `
+            <div class="mn-dist__barra">
+              ${segmentos.filter(([, , n]) => n > 0).map(([k, , n, palabra]) => `
+                <div class="mn-dist__seg mn-dist__seg--${k}" style="flex-grow:${n}" data-tip="${n} ${palabra}"></div>`).join('')}
+            </div>
+            <div class="mn-dist__leyenda">
+              ${segmentos.map(([, st, n, palabra]) => status(st, { label: `${n} ${palabra}` })).join('')}
+            </div>`
+    : '<p class="op-meta" style="margin:0">Sin fichas todavía: el estado aparece cuando cargues las primeras.</p>'}
+        </div></div>
+      </div>
+
+      <div class="op-section">
+        <div class="op-section__head"><span class="op-section__title">Exámenes</span>
+          ${notas.length ? `<span class="op-meta">${plural(notas.length, 'examen', 'exámenes')} · el último ${notas[notas.length - 1].nota}%</span>` : ''}</div>
+        <div class="op-card"><div class="op-card__body">
+          ${notas.length >= 2 ? `
+            <div class="mn-linea">
+              <span class="mn-linea__guia mn-linea__guia--alto"><i>100</i></span>
+              <span class="mn-linea__guia mn-linea__guia--bajo"><i>0</i></span>
+              <svg class="mn-linea__svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <polyline points="${puntosLinea.map((p) => `${p.x.toFixed(2)},${(100 - p.nota).toFixed(2)}`).join(' ')}"
+                          fill="none" vector-effect="non-scaling-stroke"/>
+              </svg>
+              ${puntosLinea.map((p, i) => `
+                <span class="mn-linea__punto${i === puntosLinea.length - 1 ? ' is-ultimo' : ''}"
+                      style="left:${p.x.toFixed(2)}%;bottom:${p.nota}%"
+                      data-tip="${esc(`${p.nombre ? `${p.nombre} · ` : ''}${fCorta(p.fecha)} · ${p.nota}%`)}"></span>`).join('')}
+            </div>
+            <div class="mn-graf__eje"><span>el primero</span><span>el último</span></div>`
+    : `<p class="op-meta" style="margin:0">${notas.length === 1
+      ? `Un examen rendido (${notas[0].nota}%). Con el segundo, acá aparece la línea del progreso.`
+      : 'Todavía no rendiste exámenes: la línea del progreso se dibuja con sus notas.'}</p>`}
+        </div></div>
+      </div>
+
+      ${olvidadas.length ? `
+        <div class="op-section">
+          <div class="op-section__head"><span class="op-section__title">Las más olvidadas</span>
+            <span class="op-meta">tus enemigas conocidas — tocá una para editarla</span></div>
+          <div class="op-list">${olvidadas.map(rowFicha).join('')}</div>
+        </div>` : ''}
+      <div style="height:32px"></div>
+    </div>`);
+
+  countTo(document.getElementById('st-fichas'), S.fichas.length);
+  countTo(document.getElementById('st-aldia'), alDiaPct, { format: (n) => `${n}%` });
+  countTo(document.getElementById('st-racha'), rachaViva, { format: (n) => `${n} d` });
+  const prom = document.getElementById('st-prom');
+  if (prom) {
+    const media = Math.round(notas.reduce((s, p) => s + p.nota, 0) / notas.length);
+    countTo(prom, media, { format: (n) => `${n}%` });
+  }
+}
+
 /* ══ Vista: Piezas ═══════════════════════════════════════════════════════════ */
 
 function viewPiezas() {
@@ -1827,6 +2005,7 @@ Router.define({
   repaso: { view: viewRepaso, nav: 'inicio' },
   examen: { view: viewExamen, nav: 'inicio' },
   examenes: { view: viewExamenes },
+  stats: { view: viewStats },
   piezas: { view: viewPiezas },
   ajustes: { view: viewAjustes },
 }, document.getElementById('view'));
@@ -2220,6 +2399,7 @@ function registerCommands() {
     { id: 'nav-inicio', group: 'Ir a', icon: 'home', label: 'Inicio', run: () => Router.go('inicio') },
     { id: 'nav-mazos', group: 'Ir a', icon: 'layers', label: 'Mazos', run: () => Router.go('mazos') },
     { id: 'nav-examenes', group: 'Ir a', icon: 'examen', label: 'Exámenes', hint: 'el historial', run: () => Router.go('examenes') },
+    { id: 'nav-stats', group: 'Ir a', icon: 'grafico', label: 'Estadísticas', hint: 'el progreso', run: () => Router.go('stats') },
     { id: 'nav-piezas', group: 'Ir a', icon: 'grid', label: 'Piezas', run: () => Router.go('piezas') },
     { id: 'nav-ajustes', group: 'Ir a', icon: 'settings', label: 'Ajustes', run: () => Router.go('ajustes') },
     ...S.mazos.map((m) => ({

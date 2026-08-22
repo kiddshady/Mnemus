@@ -114,6 +114,26 @@ se le toma examen. También se exporta de una.
 Eliminar una carpeta **suelta** sus mazos a la raíz, nunca se los lleva: la
 carpeta es organización, no contenido.
 
+## Las estadísticas
+
+La vista **Estadísticas** dibuja lo que los repasos van dejando:
+
+- **Actividad**: repasos por día, últimos 30 días, con la racha al lado. El
+  diario se anota con cada calificación a partir de que existe la vista — la
+  srs de una ficha guarda su estado, no su historia, así que los días previos
+  no se pueden reconstruir: el gráfico crece con el uso.
+- **Lo que viene**: cuántas fichas vencen cada día de las próximas dos semanas.
+  Lo ya vencido cae en HOY — la deuda no vive en el pasado.
+- **El estado de las fichas**: nuevas, aprendiendo, vencidas y al día, la misma
+  lectura que la marca de cada ficha, sumada.
+- **Exámenes**: la línea de las notas del historial, en orden de rendida.
+- **Las más olvidadas**: las fichas con más olvidos — tus enemigas conocidas,
+  listas para editar.
+
+Los gráficos son HTML y SVG de la casa, sin librerías: una sola serie por
+gráfico, tooltips propios en cada barra y cada punto, y el acento reservado
+para el presente (la barra de hoy, la última nota).
+
 ## Pasar un mazo a otra persona
 
 Desde el menú de un mazo, **Exportar…**; o el botón de exportar en la vista Mazos
@@ -187,6 +207,7 @@ data/
   fichas/f-0001.json    un archivo por ficha, con su historial de repaso
   examenes/e-0001.json  un archivo por examen rendido
   carpetas/c-0001.json  un archivo por carpeta
+  actividad/d-20260822.json  el diario: un contador de repasos por día
 ```
 
 Un archivo por ítem y no un array gigante: guardar una ficha no reescribe las
@@ -205,6 +226,7 @@ renderer/js/srs.js    el motor SM-2, puro y testeable sin DOM
 renderer/js/ficha.js  los tipos de ficha, también puro
 renderer/js/examen.js el modo examen: la muestra, el puntaje y el veredicto
 renderer/js/carpetas.js  la agrupación de mazos en carpetas
+renderer/js/stats.js  las cuentas de las estadísticas, puras
 renderer/js/app.js    las vistas
 renderer/css/         el sistema de diseño
 ```
