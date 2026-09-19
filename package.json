@@ -13,7 +13,7 @@
     "smoke": "electron test/renderer.test.cjs",
     "icons": "node tools/build-icon.mjs",
     "dist": "electron-builder --win",
-    "release": "electron-builder --win --publish always"
+    "release": "node tools/release.mjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
