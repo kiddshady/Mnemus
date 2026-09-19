@@ -36,6 +36,8 @@ const INTERVALO = 4 * 60 * 60 * 1000;
 
 /** Lo último que se descargó y quedó esperando, o null. */
 let listo = null;
+/** La versión que se está bajando ahora, con su avance: { version, porcentaje }. */
+let bajando = null;
 let timer = null;
 
 /**
@@ -50,6 +52,7 @@ function register(getWin) {
     // En dev los canales existen igual, así el renderer no necesita saber si
     // está empaquetado: pide, le dicen que no hay nada, y sigue.
     ipcMain.handle('update:install', () => false);
+    ipcMain.handle('update:check', () => ({ estado: 'dev', actual: app.getVersion() }));
     return;
   }
 
@@ -64,7 +67,18 @@ function register(getWin) {
     if (win && !win.isDestroyed()) win.webContents.send(canal, payload);
   };
 
+  autoUpdater.on('update-available', (info) => {
+    bajando = { version: info.version, porcentaje: 0 };
+  });
+
+  autoUpdater.on('download-progress', (p) => {
+    if (!bajando) return;
+    bajando.porcentaje = Math.round(p.percent || 0);
+    send('update:progress', bajando);
+  });
+
   autoUpdater.on('update-downloaded', (info) => {
+    bajando = null;
     listo = { version: info.version, notas: typeof info.releaseNotes === 'string' ? info.releaseNotes : null };
     console.log(`[update] ${info.version} descargada y lista`);
     send('update:ready', listo);
@@ -76,6 +90,29 @@ function register(getWin) {
   autoUpdater.on('error', (err) => {
     // Trampa 2: se registra y se sigue. El usuario no se entera.
     console.error('[update]', err?.message || err);
+    bajando = null;
+  });
+
+  /* El chequeo a mano, desde Ajustes. Acá la trampa 2 se invierte: el que
+     apretó el botón SÍ quiere saber si falló, así que el error vuelve como
+     resultado en vez de tragarse. Nunca arranca una segunda descarga: si ya
+     hay una en curso o una lista, contesta eso. */
+  ipcMain.handle('update:check', async () => {
+    const actual = app.getVersion();
+    if (listo) return { estado: 'listo', actual, version: listo.version };
+    if (bajando) return { estado: 'bajando', actual, ...bajando };
+    try {
+      const r = await autoUpdater.checkForUpdates();
+      if (r?.isUpdateAvailable && r.updateInfo?.version) {
+        // autoDownload ya la está bajando; el avance llega por update:progress
+        // y el final por update:ready, igual que en el chequeo automático.
+        bajando = bajando || { version: r.updateInfo.version, porcentaje: 0 };
+        return { estado: 'bajando', actual, ...bajando };
+      }
+      return { estado: 'al-dia', actual };
+    } catch (err) {
+      return { estado: 'error', actual, mensaje: String(err?.message || err).split('\n')[0] };
+    }
   });
 
   ipcMain.handle('update:install', () => {

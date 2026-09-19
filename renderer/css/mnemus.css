@@ -653,3 +653,20 @@
   text-overflow: clip;
   line-height: 1.5;
 }
+
+/* ── Actualizaciones, en Ajustes → Acerca de ──
+   Una fila más de la card: el estado a la izquierda, la acción a la derecha.
+   El texto se funde al cambiar de estado (ver pintarUpdate en app.js). */
+.mn-update {
+  display: flex;
+  align-items: center;
+  gap: var(--op-4);
+  margin-top: var(--op-4);
+  padding-top: var(--op-4);
+  box-shadow: inset 0 1px 0 var(--op-line);
+}
+.mn-update__texto { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.mn-update__titulo { font-size: var(--op-fs-13); color: var(--op-text-2); }
+.mn-update__estado { transition: opacity var(--op-t-1) var(--op-ease-soft); }
+.mn-update__estado.is-cambiando { opacity: 0; }
+.mn-update .op-btn { flex: 0 0 auto; }

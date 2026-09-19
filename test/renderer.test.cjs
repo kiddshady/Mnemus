@@ -30,6 +30,9 @@ setTimeout(() => bail('timeout de 150s'), 150000);
 
 app.whenReady().then(async () => {
   require(path.join(ROOT, 'src', 'ipc.cjs')).register();
+  // Los canales de actualización, como en main.cjs. Sin empacar solo contestan
+  // «nada que hacer», que es justo lo que el humo tiene que ver.
+  require(path.join(ROOT, 'src', 'update.cjs')).register(() => null);
 
   const win = new BrowserWindow({
     x: -20000, y: -20000, width: W, height: H,
@@ -109,6 +112,21 @@ app.whenReady().then(async () => {
     const activo = await js(`!!document.querySelector('[data-view="${v}"].is-active')`);
     ok(`${v}: pinta y queda activa en el rail`, hijos > 0 && activo, `hijos=${hijos} activo=${activo}`);
   }
+
+  /* Buscar actualizaciones a mano. Sin empacar no hay nada que buscar, y la
+     fila tiene que decirlo en vez de quedarse en «Buscando…» para siempre. */
+  await click('[data-view="ajustes"]');
+  await sleep(600);
+  ok('Ajustes ofrece buscar actualizaciones', (await js(`document.getElementById('upd-btn')?.textContent.trim()`)) === 'Buscar actualizaciones');
+  await click('#upd-btn');
+  await sleep(250);
+  ok('mientras busca lo dice y no se puede reapretar',
+    (await js(`document.getElementById('upd-btn').disabled && document.getElementById('upd-estado').textContent.startsWith('Buscando')`)) === true);
+  await sleep(1200);
+  ok('y termina con una respuesta (en dev: que no hay actualizaciones)',
+    ((await js(`document.getElementById('upd-estado').textContent`)) || '').includes('en desarrollo no hay actualizaciones'));
+  await click('[data-view="inicio"]');
+  await sleep(500);
 
   console.log('\n4. El repaso: velo, revelado y la srs en el disco');
   await click('[data-view="mazos"]');

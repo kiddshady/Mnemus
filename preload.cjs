@@ -46,10 +46,17 @@ contextBridge.exposeInMainWorld('opal', {
   update: {
     pending: () => ipcRenderer.invoke('update:pending'),
     install: () => ipcRenderer.invoke('update:install'),
+    /** Buscar ahora, a mano. Devuelve { estado, actual, version?, porcentaje?, mensaje? }. */
+    check: () => ipcRenderer.invoke('update:check'),
     onReady: (cb) => {
       const handler = (_e, info) => cb(info);
       ipcRenderer.on('update:ready', handler);
       return () => ipcRenderer.off('update:ready', handler);
+    },
+    onProgress: (cb) => {
+      const handler = (_e, info) => cb(info);
+      ipcRenderer.on('update:progress', handler);
+      return () => ipcRenderer.off('update:progress', handler);
     },
   },
 

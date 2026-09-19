@@ -1655,6 +1655,13 @@ function viewAjustes() {
               <span class="op-kv__k">Motor</span><span class="op-kv__v">SM-2 (SuperMemo)</span>
               <span class="op-kv__k">Electron</span><span class="op-kv__v op-mono">${esc(S.info?.electron || '—')}</span>
             </div>
+            <div class="mn-update">
+              <div class="mn-update__texto">
+                <span class="mn-update__titulo">Actualizaciones</span>
+                <span class="op-meta mn-update__estado" id="upd-estado"></span>
+              </div>
+              <button class="op-btn op-btn--secondary op-flashable" id="upd-btn"></button>
+            </div>
           </div></div>
         </div>
 
@@ -1664,6 +1671,11 @@ function viewAjustes() {
 
   bindStepper(document.getElementById('set-nuevas'), (value) => persist({ nuevasPorDia: value }));
   bindSwitcher(document.getElementById('set-orden'), (v) => setAzar(v === 'azar'));
+  document.getElementById('upd-btn').addEventListener('click', () => {
+    if (upd?.estado === 'listo') api.update.install();
+    else buscarUpdate();
+  });
+  pintarUpdate({ animar: false });
 }
 
 async function persist(patch) {
@@ -2625,12 +2637,73 @@ function avisarUpdate(info) {
   });
 }
 
+/* ── Buscar a mano, desde Ajustes ──
+   El chequeo automático alcanza casi siempre, pero «¿ya salió la versión que
+   me dijeron?» merece una respuesta ahora y no dentro de cuatro horas. El
+   estado vive acá y no en la vista: si salís de Ajustes a mitad de una
+   descarga y volvés, el porcentaje sigue donde iba. */
+let upd = null;
+
+const TEXTO_UPD = {
+  inicio: () => ['Se buscan solas al abrir la app y cada 4 horas.', 'Buscar actualizaciones'],
+  buscando: () => ['Buscando en GitHub…', 'Buscando…'],
+  'al-dia': (u) => [`Tenés la última versión (${u.actual}).`, 'Buscar de nuevo'],
+  bajando: (u) => [`Bajando la ${u.version}… ${u.porcentaje || 0} %`, 'Bajando…'],
+  listo: (u) => [`La ${u.version} ya está bajada. Se instala sola al cerrar la app.`, 'Reiniciar y actualizar'],
+  dev: () => ['Esta copia corre desde el repo: en desarrollo no hay actualizaciones.', 'Buscar actualizaciones'],
+  error: (u) => [`No se pudo buscar: ${u.mensaje || 'sin respuesta'}. Revisá la conexión y probá de nuevo.`, 'Reintentar'],
+};
+
+function pintarUpdate({ animar = true } = {}) {
+  const estado = document.getElementById('upd-estado');
+  const btn = document.getElementById('upd-btn');
+  if (!estado || !btn) return;                 // Ajustes no está montado
+  const clave = upd?.estado in TEXTO_UPD ? upd.estado : 'inicio';
+  const [texto, etiqueta] = TEXTO_UPD[clave](upd || {});
+  const ocupado = clave === 'buscando' || clave === 'bajando';
+  btn.disabled = ocupado || clave === 'dev';
+  btn.classList.toggle('op-btn--primary', clave === 'listo');
+  btn.classList.toggle('op-btn--secondary', clave !== 'listo');
+  const icono = clave === 'listo' ? 'download' : 'retry';
+  btn.innerHTML = `${Icons.svg(icono, ocupado ? 'op-spinning' : '')} ${esc(etiqueta)}`;
+
+  if (estado.textContent === texto) return;
+  // El avance de la descarga cambia varias veces por segundo: ese se escribe
+  // directo. Los cambios de estado se funden, no saltan.
+  if (!animar || (clave === 'bajando' && estado.dataset.clave === 'bajando')) {
+    estado.textContent = texto;
+  } else {
+    estado.classList.add('is-cambiando');
+    setTimeout(() => { estado.textContent = texto; estado.classList.remove('is-cambiando'); }, 140);
+  }
+  estado.dataset.clave = clave;
+}
+
+async function buscarUpdate() {
+  if (!api?.update?.check) return;
+  upd = { estado: 'buscando' };
+  pintarUpdate();
+  // Un mínimo de espera: si GitHub contesta en 80 ms, «Buscando…» sería un
+  // parpadeo que no se llega a leer, y no queda claro que algo pasó.
+  const [r] = await Promise.all([
+    api.update.check().catch((e) => ({ estado: 'error', mensaje: String(e?.message || e) })),
+    new Promise((r) => setTimeout(r, 700)),
+  ]);
+  // Si mientras tanto la descarga avanzó o terminó, lo más nuevo gana.
+  if (upd?.estado === 'buscando') upd = r;
+  pintarUpdate();
+}
+
 async function wireUpdates() {
   if (!api?.update) return;                    // build viejo del preload
+  api.update.onProgress?.((info) => { upd = { estado: 'bajando', ...info }; pintarUpdate(); });
+  api.update.onReady((info) => { upd = { estado: 'listo', ...info }; pintarUpdate(); });
   api.update.onReady(avisarUpdate);
   // Y el que ya estaba listo antes de que esta ventana existiera (ver la
   // trampa 3 de src/update.cjs).
-  avisarUpdate(await api.update.pending().catch(() => null));
+  const pendiente = await api.update.pending().catch(() => null);
+  if (pendiente?.version) upd = { estado: 'listo', ...pendiente };
+  avisarUpdate(pendiente);
 }
 
 /* ══ Arranque ════════════════════════════════════════════════════════════════ */
