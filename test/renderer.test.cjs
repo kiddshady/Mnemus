@@ -695,6 +695,30 @@ app.whenReady().then(async () => {
   ok('también en disco',
     (await js(`window.opal.col('mazos').get(${JSON.stringify(mazoId)}).then(m => m.carpeta)`)) === carpetaHumo.id);
 
+  /* Mover de a muchos: Ctrl+click elige sin abrir, la isla cuenta y ofrece
+     mover, y el modal mueve a TODOS los elegidos. Uno ya vive en la carpeta y
+     el otro no: tiene que moverse solo el que cambia. Se lee el disco. */
+  if (importado) {
+    const ctrlClick = (sel) => js(`(() => { const el = document.querySelector(${JSON.stringify(sel)});
+      if (!el) return false; el.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); return true; })()`);
+    await ctrlClick(`[data-open-mazo="${mazoId}"]`);
+    await ctrlClick(`[data-open-mazo="${importado.id}"]`);
+    await sleep(500);
+    ok('Ctrl+click elige sin abrir el mazo', (await js(`document.querySelectorAll('[data-open-mazo].is-selected').length`)) === 2
+      && (await js(`!!document.querySelector('.mn-carpeta')`)));
+    ok('la isla de selección cuenta los elegidos', (await js(`document.querySelector('.mn-seleccion__cuenta')?.textContent`)) === '2 mazos');
+    await click('[data-action="mover-seleccion"]');
+    await sleep(700);
+    ok('el modal nombra cuántos mueve', (await js(`document.querySelector('.op-modal__title')?.textContent`)) === 'Mover 2 mazos');
+    await click(`.op-modal [data-destino="${carpetaHumo.id}"]`);
+    await js(`[...document.querySelectorAll('.op-modal__foot button')].find(b => b.textContent.trim() === 'Mover').click()`);
+    await sleep(1400);
+    ok('los dos quedaron en la carpeta, en disco',
+      (await js(`window.opal.col('mazos').get(${JSON.stringify(importado.id)}).then(m => m.carpeta)`)) === carpetaHumo.id
+      && (await js(`window.opal.col('mazos').get(${JSON.stringify(mazoId)}).then(m => m.carpeta)`)) === carpetaHumo.id);
+    ok('y la selección se soltó', !(await js(`document.querySelector('[data-open-mazo].is-selected') || document.getElementById('mn-seleccion')`)));
+  }
+
   await js(`(() => { document.querySelector('.mn-carpeta[data-carpeta=${JSON.stringify(carpetaHumo.id)}] [data-menu="carpeta"]').click(); return true; })()`);
   await sleep(500);
   await js(`(() => {

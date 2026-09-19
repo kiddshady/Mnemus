@@ -195,6 +195,98 @@ async function asignarCarpeta(mazoId, carpetaId) {
   updateChrome();
 }
 
+/* ══ Selección de varios mazos ═══════════════════════════════════════════════
+   Para mover de a muchos lo que de a uno cuesta un modal por mazo. El gesto es
+   el del Explorador: Ctrl+click suma o quita, Shift+click elige el rango desde
+   el último tocado. Con algo elegido la lista entra en «modo selección» y el
+   click simple también suma o quita: abrir un mazo ahí sería perder lo elegido.
+
+   Vive fuera de la vista a propósito: un Router.refresh repinta la lista y las
+   filas vuelven a nacer marcadas desde este Set. Navegar sí la suelta. */
+const seleccion = new Set();
+let anclaSel = null;
+
+/** Las filas de mazo que se ven: las de una carpeta plegada no cuentan para
+    un rango, porque elegir lo que no ves es mover a ciegas. */
+function filasVisibles() {
+  return [...document.querySelectorAll('[data-open-mazo]')]
+    .filter((f) => !f.closest('.mn-carpeta.is-plegada'))
+    .map((f) => f.dataset.openMazo);
+}
+
+function elegirMazo(id, { rango = false } = {}) {
+  if (rango && anclaSel) {
+    const filas = filasVisibles();
+    const a = filas.indexOf(anclaSel);
+    const b = filas.indexOf(id);
+    if (a > -1 && b > -1) {
+      filas.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => seleccion.add(x));
+      pintarSeleccion();
+      return;
+    }
+  }
+  seleccion.has(id) ? seleccion.delete(id) : seleccion.add(id);
+  anclaSel = id;
+  pintarSeleccion();
+}
+
+function limpiarSeleccion() {
+  if (!seleccion.size && !anclaSel) return;
+  seleccion.clear();
+  anclaSel = null;
+  pintarSeleccion();
+}
+
+/** Marca las filas EN EL LUGAR, sin repintar: un refresh acá movería la lista
+    abajo del mouse a mitad de un Shift+click. */
+function pintarSeleccion() {
+  for (const id of [...seleccion]) if (!mazo(id)) seleccion.delete(id);
+  document.querySelectorAll('[data-open-mazo]').forEach((f) => {
+    const on = seleccion.has(f.dataset.openMazo);
+    f.classList.toggle('is-selected', on);
+    f.setAttribute('aria-selected', String(on));
+  });
+  barraSeleccion();
+}
+
+/**
+ * La isla de abajo: cuántos hay y qué hacer con ellos. Nace una sola vez fuera
+ * de #view —que se repinta entero— y entra y sale con la firma de Opal: aflora.
+ */
+function barraSeleccion() {
+  const app = document.querySelector('.op-app');
+  let barra = document.getElementById('mn-seleccion');
+  const n = seleccion.size;
+  app?.classList.toggle('has-seleccion', n > 0);
+
+  if (!n) {
+    const isla = barra?.querySelector('.mn-seleccion__isla');
+    if (isla && isla.dataset.state !== 'closing') {
+      isla.dataset.state = 'closing';
+      isla.addEventListener('animationend', () => { if (!seleccion.size) barra.remove(); }, { once: true });
+    }
+    return;
+  }
+
+  if (!barra) {
+    barra = document.createElement('div');
+    barra.id = 'mn-seleccion';
+    barra.className = 'mn-seleccion';
+    barra.innerHTML = `
+      <div class="mn-seleccion__isla" role="toolbar" aria-label="Mazos seleccionados">
+        <span class="mn-seleccion__cuenta op-num"></span>
+        <span class="mn-seleccion__pista">Ctrl+click suma · Shift+click elige un rango</span>
+        <button class="op-btn op-btn--primary op-flashable" data-action="mover-seleccion"><i data-icon="folder"></i> Mover a carpeta…</button>
+        <button class="op-iconbtn" data-action="limpiar-seleccion" data-tip="Quitar la selección" data-tip-key="Esc"><i data-icon="close"></i></button>
+      </div>`;
+    Icons.mount(barra);
+    document.body.appendChild(barra);
+  }
+  const isla = barra.querySelector('.mn-seleccion__isla');
+  delete isla.dataset.state;
+  barra.querySelector('.mn-seleccion__cuenta').textContent = n === 1 ? '1 mazo' : `${n} mazos`;
+}
+
 const carpeta = (id) => S.carpetas.find((c) => c.id === id) || null;
 const mazosEnCarpeta = (id) => S.mazos.filter((m) => m.carpeta === id);
 function fichasDeCarpeta(id) {
@@ -744,7 +836,7 @@ function rowMazo(m) {
      eso no se adivina — se pregunta con el mouse. */
   const tip = { queued: 'Tiene fichas para hoy', done: 'Al día: nada vence hoy', idle: 'Sin fichas todavía' }[st];
   return `
-    <div class="op-listitem" role="button" tabindex="0" data-open-mazo="${esc(m.id)}" draggable="true">
+    <div class="op-listitem${seleccion.has(m.id) ? ' is-selected' : ''}" role="button" tabindex="0" data-open-mazo="${esc(m.id)}" draggable="true" aria-selected="${seleccion.has(m.id)}">
       <span data-tip="${esc(tip)}">${mark(st, 'square')}</span>
       <div class="op-listitem__main">
         <span class="op-listitem__title">${esc(m.name)}</span>
@@ -1722,19 +1814,41 @@ async function eliminarCarpeta(id) {
 
 /** Mover un mazo: elegís el destino de una lista y confirmás — el mismo
     patrón del resto de los modales, sin menús anidados. */
-async function moverMazoModal(mazoId) {
-  const m = mazo(mazoId);
-  if (!m) return;
+/**
+ * Mover uno o varios mazos a una carpeta. Con varios, la carpeta de partida
+ * puede no ser la misma para todos: entonces no se marca ninguna, y elegir
+ * una mueve solo a los que no estaban ya ahí.
+ */
+async function moverMazosModal(ids) {
+  const mazos = ids.map(mazo).filter(Boolean);
+  if (!mazos.length) return;
+  const nombre = mazos.length === 1 ? mazos[0].name : `${mazos.length} mazos`;
+
+  const mover = async (destino) => {
+    const aMover = mazos.filter((m) => (m.carpeta || null) !== (destino || null));
+    if (!aMover.length) return;
+    for (const m of aMover) {
+      if (await attempt(() => asignarCarpeta(m.id, destino)) === null) break;
+    }
+    Toast.show({
+      title: aMover.length === 1 ? 'Mazo movido' : `${aMover.length} mazos movidos`,
+      text: aMover.length === 1
+        ? `${aMover[0].name} → ${destino ? carpeta(destino)?.name : 'sin carpeta'}`
+        : (destino ? `Ahora están en ${carpeta(destino)?.name}` : 'Ahora están sin carpeta'),
+      icon: 'folder',
+    });
+    limpiarSeleccion();
+    Router.refresh();
+  };
+
   if (!S.carpetas.length) {
     const creada = await nuevaCarpetaModal();
-    if (!creada) return;
-    await attempt(() => asignarCarpeta(mazoId, creada.id));
-    Toast.show({ title: 'Mazo movido', text: `${m.name} → ${creada.name}`, icon: 'folder' });
-    Router.refresh();
+    if (creada) await mover(creada.id);
     return;
   }
 
-  const actual = m.carpeta || null;
+  const partidas = new Set(mazos.map((m) => m.carpeta || null));
+  const actual = partidas.size === 1 ? [...partidas][0] : undefined;
   let elegida = actual;
   const opciones = [
     ...[...S.carpetas].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
@@ -1764,8 +1878,8 @@ async function moverMazoModal(mazoId) {
   });
 
   const ok = await Modal.show({
-    title: `Mover “${m.name}”`,
-    sub: 'La carpeta organiza; el mazo y su historial no se tocan.',
+    title: mazos.length === 1 ? `Mover “${nombre}”` : `Mover ${nombre}`,
+    sub: 'La carpeta organiza; los mazos y su historial no se tocan.',
     body,
     width: 420,
     actions: [
@@ -1773,14 +1887,8 @@ async function moverMazoModal(mazoId) {
       { label: 'Mover', value: true, variant: 'primary', autofocus: true },
     ],
   });
-  if (!ok || elegida === actual) return;
-  await attempt(() => asignarCarpeta(mazoId, elegida));
-  Toast.show({
-    title: 'Mazo movido',
-    text: `${m.name} → ${elegida ? carpeta(elegida)?.name : 'sin carpeta'}`,
-    icon: 'folder',
-  });
-  Router.refresh();
+  if (!ok || elegida === undefined || elegida === actual) return;
+  await mover(elegida);
 }
 
 /**
@@ -2151,7 +2259,12 @@ const MENUS = {
     { label: 'Abrir', icon: 'external', onSelect: () => Router.go('mazo', id) },
     { label: 'Repasar', icon: 'zap', onSelect: () => iniciarSesion(id) },
     { label: 'Tomar examen…', icon: 'examen', onSelect: () => iniciarExamen(id) },
-    { label: 'Mover a carpeta…', icon: 'folder', onSelect: () => moverMazoModal(id) },
+    { label: 'Mover a carpeta…', icon: 'folder', onSelect: () => moverMazosModal([id]) },
+    {
+      label: seleccion.has(id) ? 'Quitar de la selección' : 'Seleccionar',
+      icon: 'check',
+      onSelect: () => elegirMazo(id),
+    },
     { label: 'Renombrar…', icon: 'edit', onSelect: () => renombrarMazo(id) },
     { label: 'Exportar…', icon: 'upload', onSelect: () => exportarMazos([mazo(id)].filter(Boolean)) },
     { label: 'Copiar id', icon: 'copy', onSelect: () => copy(id) },
@@ -2203,7 +2316,11 @@ function wireShell() {
     if (goto) Router.go(goto.dataset.goto, goto.dataset.param || null);
 
     const open = e.target.closest('[data-open-mazo]');
-    if (open && !e.target.closest('[data-menu], [data-action]')) Router.go('mazo', open.dataset.openMazo);
+    if (open && !e.target.closest('[data-menu], [data-action]')) {
+      const id = open.dataset.openMazo;
+      if (e.ctrlKey || e.metaKey || e.shiftKey || seleccion.size) elegirMazo(id, { rango: e.shiftKey });
+      else Router.go('mazo', id);
+    }
 
     const cp = e.target.closest('[data-copy]');
     if (cp) copy(cp.dataset.copy);
@@ -2231,6 +2348,8 @@ function wireShell() {
       if (a === 'ver-examen') verExamen(arg);
       if (a === 'eliminar-examen') eliminarExamen(arg);
       if (a === 'importar') importarModal();
+      if (a === 'mover-seleccion') moverMazosModal([...seleccion]);
+      if (a === 'limpiar-seleccion') limpiarSeleccion();
       if (a === 'exportar-todo') exportarMazos(S.mazos);
       if (a === 'azar') setAzar(!S.settings.azar);
       if (a === 'terminar') terminarSesion();
@@ -2245,11 +2364,19 @@ function wireShell() {
 
   // Enter y Espacio sobre una fila: la lista tiene que ser usable sin mouse.
   document.addEventListener('keydown', (e) => {
+    // Escape suelta la selección, salvo que haya un overlay: ahí es de él.
+    if (e.key === 'Escape' && seleccion.size && !document.querySelector('.op-modal, .op-palette, .op-menu')) {
+      e.preventDefault();
+      limpiarSeleccion();
+      return;
+    }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const row = e.target.closest?.('[data-open-mazo]');
     if (row) {
       e.preventDefault();
-      Router.go('mazo', row.dataset.openMazo);
+      // En modo selección, Espacio elige como en cualquier lista; Enter abre.
+      if (e.key === ' ' && seleccion.size) elegirMazo(row.dataset.openMazo, { rango: e.shiftKey });
+      else Router.go('mazo', row.dataset.openMazo);
       return;
     }
     const examen = e.target.closest?.('[data-action="ver-examen"]');
@@ -2269,35 +2396,45 @@ function wireShell() {
      El complemento veloz del modal «Mover a carpeta…»: agarrás la fila y la
      soltás sobre una carpeta — o sobre «Sin carpeta» para sacarla. Delegado
      acá, como los clicks: sobrevive a cualquier repintado. */
-  let dragMazo = null;
+  // Los ids que viajan en el gesto: uno, o toda la selección si agarraste
+  // una fila elegida — arrastrar lo que se ve marcado mueve lo marcado.
+  let dragMazos = null;
 
   document.addEventListener('dragstart', (e) => {
     const fila = e.target.closest?.('[data-open-mazo]');
     if (!fila) return;
     // Sin carpetas no hay dónde soltar: mejor ni arrancar el gesto.
     if (!S.carpetas.length) { e.preventDefault(); return; }
-    dragMazo = fila.dataset.openMazo;
-    e.dataTransfer.setData('text/plain', dragMazo);
+    const id = fila.dataset.openMazo;
+    dragMazos = seleccion.has(id) ? [...seleccion] : [id];
+    e.dataTransfer.setData('text/plain', dragMazos.join(','));
     e.dataTransfer.effectAllowed = 'move';
-    fila.classList.add('is-arrastrado');
+    document.querySelectorAll('[data-open-mazo]').forEach((f) => {
+      if (dragMazos.includes(f.dataset.openMazo)) f.classList.add('is-arrastrado');
+    });
   });
 
   document.addEventListener('dragend', () => {
-    dragMazo = null;
+    dragMazos = null;
     document.querySelectorAll('.is-arrastrado').forEach((el) => el.classList.remove('is-arrastrado'));
     document.querySelectorAll('.mn-carpeta.is-destino').forEach((el) => el.classList.remove('is-destino'));
   });
 
-  document.addEventListener('dragover', (e) => {
-    if (!dragMazo) return;
+  /** ¿Soltar acá cambia algo? Si todos ya viven en esa carpeta, no es mover. */
+  const destinoDe = (e) => {
     const dest = e.target.closest?.('.mn-carpeta');
-    if (!dest) return;
-    // Soltarlo donde ya vive no es mover: ni se ilumina ni acepta.
-    const destinoId = dest.dataset.carpeta === 'raiz' ? null : dest.dataset.carpeta;
-    if ((mazo(dragMazo)?.carpeta || null) === destinoId) return;
+    if (!dest || !dragMazos) return null;
+    const id = dest.dataset.carpeta === 'raiz' ? null : dest.dataset.carpeta;
+    const cambia = dragMazos.some((m) => (mazo(m)?.carpeta || null) !== id);
+    return cambia ? { dest, id } : null;
+  };
+
+  document.addEventListener('dragover', (e) => {
+    const d = destinoDe(e);
+    if (!d) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    dest.classList.add('is-destino');
+    d.dest.classList.add('is-destino');
   });
 
   document.addEventListener('dragleave', (e) => {
@@ -2306,27 +2443,37 @@ function wireShell() {
   });
 
   document.addEventListener('drop', async (e) => {
-    if (!dragMazo) return;
-    const dest = e.target.closest?.('.mn-carpeta');
-    if (!dest) return;
+    const d = destinoDe(e);
+    if (!d) return;
     e.preventDefault();
-    const id = dragMazo;
-    dragMazo = null;
-    dest.classList.remove('is-destino');
+    const ids = dragMazos;
+    dragMazos = null;
+    d.dest.classList.remove('is-destino');
 
-    const destinoId = dest.dataset.carpeta === 'raiz' ? null : dest.dataset.carpeta;
-    const m = mazo(id);
-    if (!m || (m.carpeta || null) === destinoId) return;
-    const hecho = await attempt(() => asignarCarpeta(id, destinoId));
-    if (hecho === null) return;
+    const aMover = ids.map(mazo).filter((m) => m && (m.carpeta || null) !== d.id);
+    for (const m of aMover) {
+      if (await attempt(() => asignarCarpeta(m.id, d.id)) === null) break;
+    }
     Toast.show({
-      title: 'Mazo movido',
-      text: `${m.name} → ${destinoId ? carpeta(destinoId)?.name : 'sin carpeta'}`,
+      title: aMover.length === 1 ? 'Mazo movido' : `${aMover.length} mazos movidos`,
+      text: aMover.length === 1
+        ? `${aMover[0].name} → ${d.id ? carpeta(d.id)?.name : 'sin carpeta'}`
+        : (d.id ? `Ahora están en ${carpeta(d.id)?.name}` : 'Ahora están sin carpeta'),
       icon: 'folder',
       duration: 2200,
     });
+    if (ids.length > 1) limpiarSeleccion();
     Router.refresh();
   });
+
+  // Shift+click elige un rango: sin esto, el navegador además selecciona el
+  // texto de todas las filas del medio.
+  document.addEventListener('mousedown', (e) => {
+    if (e.shiftKey && e.target.closest?.('[data-open-mazo]')) e.preventDefault();
+  });
+
+  // Navegar suelta la selección: lo elegido es de esta lista, no de la app.
+  Router.onChange(() => limpiarSeleccion());
 }
 
 /** Todo lo que vive fuera de la vista: statusbar, contadores del rail, contexto. */
