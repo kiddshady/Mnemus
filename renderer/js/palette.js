@@ -199,7 +199,7 @@ export function show() {
   anim.innerHTML = `
     <div class="op-palette" role="dialog" aria-modal="true">
       <div class="op-palette__search">
-        ${Icons.svg('search', 'op-icon--lg')}
+        ${Icons.svg('search')}
         <input class="op-palette__input" placeholder="${placeholder.replace(/"/g, '&quot;')}" spellcheck="false" autocomplete="off">
       </div>
       <div class="op-palette__list op-scroll"></div>

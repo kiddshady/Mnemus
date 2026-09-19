@@ -43,8 +43,10 @@
   background:
     /* El grano, arriba de todo el sustrato. */
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.038'/%3E%3C/svg%3E"),
-    /* El velo. */
-    linear-gradient(to bottom, rgb(8 8 9 / .14), rgb(8 8 9 / .46)),
+    /* El velo. Parejo a propósito: con un degradé vertical, sobre un fondo
+       tan oscuro cada nivel de 8 bits ocupa cientos de px y los saltos se
+       leen como líneas horizontales que parten la ventana en franjas. */
+    linear-gradient(rgb(8 8 9 / .3), rgb(8 8 9 / .3)),
     /* La niebla. */
     radial-gradient(46vw 46vw at 10% 0%, rgb(255 255 255 / calc(.062 * var(--op-fog))), transparent 70%),
     radial-gradient(42vw 42vw at 94% 16%, rgb(255 255 255 / calc(.05 * var(--op-fog))), transparent 70%),
