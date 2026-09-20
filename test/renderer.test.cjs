@@ -839,17 +839,13 @@ app.whenReady().then(async () => {
     menu && menu.t >= 0 && menu.l >= 0 && menu.b <= H && menu.rt <= W, JSON.stringify(menu));
   await js(`document.body.click(); true`); await sleep(300);
 
-  await click('#btn-palette');
-  await sleep(500);
-  const pal = await js(`(() => { const p=document.querySelector('.op-palette'); if(!p) return null;
-    const r=p.getBoundingClientRect(); return {t:Math.round(r.top),cx:Math.round(r.left+r.width/2)}; })()`);
-  ok('la paleta abre centrada y visible', pal && pal.t > 0 && Math.abs(pal.cx - W / 2) < 4, JSON.stringify(pal));
-
-  const ph = await js(`document.querySelector('.op-palette__input')?.placeholder || ''`);
-  ok('con una pista en el campo vacío', ph.length > 3, ph);
-  ok('y con el vocabulario de ESTA app', /mazo/i.test(ph), ph);
-
-  await click('.op-scrim'); await sleep(400);
+  ok('la barra no ofrece una paleta de comandos',
+    !(await js(`document.querySelector('#btn-palette')`)));
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'K', modifiers: ['control'] });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'K', modifiers: ['control'] });
+  await sleep(300);
+  ok('Ctrl+K tampoco abre una paleta de comandos',
+    !(await js(`document.querySelector('.op-palette')`)));
 
   await click('[data-view="piezas"]');
   await sleep(900);

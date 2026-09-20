@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    OPAL — overlays
-   Tooltip, menú, modal, toast y command palette. Todos portaleados a #op-layer,
+   Tooltip, menú, modal y toast. Todos portaleados a #op-layer,
    todos con entrada Y salida (nada se corta al cerrarse), todos propios: ni un
    title= nativo, ni un confirm() del sistema.
 
@@ -55,10 +55,8 @@
    apagado: es la escala del esfumado de esa superficie, y si mañana desaparece
    la pieza que la cierra, el fade tiene que volver con el tamaño correcto. */
 .op-menu.op-scroll,
-.op-palette__list,
 .op-modal__body.op-scroll { overflow-x: hidden; }
 .op-menu.op-scroll        { --op-fade: 10px; padding-top: 10px; padding-bottom: 10px; }
-.op-palette__list         { --op-fade: 18px; padding-top: 18px; padding-bottom: 18px; }
 .op-modal__body.op-scroll { --op-fade: 20px; padding-top: 20px; padding-bottom: 20px; }
 
 /* El menú es su propio marco: el hairline lo cierra por los cuatro lados. Acá
@@ -69,9 +67,6 @@
   --op-fade-bottom: 0px;
   mask-image: none;
 }
-/* La paleta va encajada entre dos líneas: el buscador arriba, el pie abajo. */
-.op-palette__search ~ .op-palette__list    { --op-fade-top: 0px; }
-.op-palette__list:has(~ .op-palette__foot) { --op-fade-bottom: 0px; }
 /* El modal corta al aire arriba (la cabecera no lleva línea) y contra el pie abajo. */
 .op-modal__body:has(~ .op-modal__foot)     { --op-fade-bottom: 0px; }
 
@@ -246,101 +241,3 @@
 }
 .op-toast--error .op-toast__life { background: var(--op-danger-ring); }
 @keyframes op-toast-life { from { transform: scaleX(1) } to { transform: scaleX(0) } }
-
-/* ── Command palette ─────────────────────────────────────────────────────────
-   El centro de mando de la app. Es la hoja más alta y más esmerilada del
-   sistema (s4 + blur pesado): flota sobre todo y junta toda la luz. */
-/* Mismo patrón que el modal: el wrapper posiciona y anima. Acá el bug no se
-   veía —`top:14vh` es relativo a la ventana pase lo que pase— pero la trampa
-   estaba armada igual, esperando a que alguien cambiara ese 14vh por un %. */
-.op-palette__anim {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  justify-items: center;
-  align-items: start;
-  padding-top: 14vh;
-  animation: op-lift-in var(--op-t-3) var(--op-ease) both;
-}
-#op-layer > .op-palette__anim { pointer-events: none; }
-
-.op-palette {
-  position: relative;
-  pointer-events: auto;
-  width: min(560px, calc(100vw - 96px));
-  max-height: 56vh;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--op-r-xl);
-  background: var(--op-s4);
-  backdrop-filter: var(--op-glass-heavy);
-  box-shadow: var(--op-sheet), var(--op-e4);
-  overflow: hidden;
-}
-.op-palette__anim[data-state='closing'] { animation: op-lift-out var(--op-t-2) var(--op-ease-in) both; }
-.op-palette__search {
-  display: flex;
-  align-items: center;
-  gap: var(--op-3);
-  padding: var(--op-3) var(--op-4);
-  box-shadow: inset 0 -1px 0 var(--op-line);
-  flex: 0 0 auto;
-}
-/* Lupa y texto a la escala de los ítems (15px / 13px): el buscador es una fila
-   más de la lista, no un encabezado. Con el padding de 16px la lupa cae en la
-   misma columna que los íconos de abajo. */
-.op-palette__search > .op-icon { width: 15px; height: 15px; color: var(--op-text-4); }
-.op-palette__input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  color: var(--op-text);
-  font-size: var(--op-fs-13);
-  user-select: text;
-  cursor: text;
-}
-.op-palette__input::placeholder { color: var(--op-text-4); }
-.op-palette__input:focus-visible { box-shadow: none; }
-.op-palette__list { flex: 1 1 auto; min-height: 0; padding-left: var(--op-2); padding-right: var(--op-2); }
-.op-palette__group {
-  padding: var(--op-2) var(--op-2) var(--op-1);
-  font-size: var(--op-fs-10);
-  font-weight: var(--op-w-semi);
-  letter-spacing: var(--op-track-caps);
-  text-transform: uppercase;
-  color: var(--op-text-4);
-}
-.op-palette__item {
-  display: flex;
-  align-items: center;
-  gap: var(--op-3);
-  width: 100%;
-  height: 34px;
-  padding: 0 var(--op-2);
-  border: 0;
-  border-radius: var(--op-r-sm);
-  background: transparent;
-  color: var(--op-text-2);
-  font-size: var(--op-fs-13);
-  text-align: left;
-  cursor: default;
-  transition: var(--tr-color);
-}
-.op-palette__item .op-icon { width: 15px; height: 15px; color: var(--op-text-4); transition: color var(--op-t-1) var(--op-ease-soft); }
-.op-palette__item.is-active { background: var(--op-wash-2); color: var(--op-text); }
-.op-palette__item.is-active .op-icon { color: var(--op-accent); }
-.op-palette__item__hint { margin-left: auto; font-size: var(--op-fs-10); color: var(--op-text-4); }
-/* Lo que hace match con lo tipeado se ILUMINA, no se pinta de amarillo. */
-.op-palette__item mark { background: transparent; color: var(--op-accent); font-weight: var(--op-w-semi); }
-.op-palette__foot {
-  display: flex;
-  align-items: center;
-  gap: var(--op-4);
-  padding: var(--op-2) var(--op-4);
-  box-shadow: inset 0 1px 0 var(--op-line);
-  font-size: var(--op-fs-10);
-  color: var(--op-text-4);
-  flex: 0 0 auto;
-}
-.op-palette__foot .op-row { gap: var(--op-1); }

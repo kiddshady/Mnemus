@@ -71,15 +71,14 @@
      ventana. Encima va la niebla (shell.css → .op-fog) y encima de la niebla,
      HOJAS de vidrio: rellenos de pura luz con alfa, que dejan pasar el fondo.
 
-     La escalera s1–s4 conserva los nombres de Onyx (rail → panel → flotante →
-     paleta) pero acá son alfas de blanco, no colores opacos: cuanto más alto
+     La escalera s1–s3 conserva los nombres de Onyx (rail → panel → flotante),
+     pero acá son alfas de blanco, no colores opacos: cuanto más alto
      flota algo, más luz junta. */
   --op-bg: oklch(14.5% calc(.0046 * var(--op-tint)) var(--op-hue));
 
   --op-s1: rgb(255 255 255 / .035);   /* rail, titlebar, statusbar */
   --op-s2: rgb(255 255 255 / .055);   /* card, panel, fila elevada */
   --op-s3: rgb(255 255 255 / .085);   /* menú, modal, popover, tooltip */
-  --op-s4: rgb(255 255 255 / .11);    /* command palette, lo más alto */
 
   /* Hundido: campos, consola, lienzo. En Opal es un pozo de sombra —alfa de
      negro— para que hunda sobre cualquier hoja, no solo sobre el fondo. */

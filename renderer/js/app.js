@@ -17,7 +17,6 @@
 
 import { Icons } from './icons.js';
 import { Tooltip, Toast, Menu, Modal } from './overlays.js';
-import Palette from './palette.js';
 import Router from './router.js';
 import { initClickFlash, initScrollFades, scrollFade, raf2, countTo, exit, bindStepper, bindSwitcher } from './motion.js';
 import { viewEl, esc, paint, head, empty, mark, status, setStateLabels, attempt, copy, colorToken } from './ui.js';
@@ -112,7 +111,6 @@ async function saveMazo(mazo) {
   S.mazos = [saved, ...S.mazos.filter((m) => m.id !== saved.id)];
   S.lastSaved = Date.now();
   updateChrome();
-  registerCommands();
   return saved;
 }
 
@@ -124,7 +122,6 @@ async function removeMazo(id) {
   S.fichas = S.fichas.filter((f) => f.mazo !== id);
   S.mazos = S.mazos.filter((m) => m.id !== id);
   updateChrome();
-  registerCommands();
 }
 
 async function saveFicha(ficha) {
@@ -160,7 +157,6 @@ async function saveCarpeta(carpeta) {
   S.carpetas = [saved, ...S.carpetas.filter((c) => c.id !== saved.id)];
   S.lastSaved = Date.now();
   updateChrome();
-  registerCommands();
   return saved;
 }
 
@@ -178,7 +174,6 @@ async function removeCarpeta(id) {
   const plegadas = (S.settings.plegadas || []).filter((x) => x !== id);
   if (plegadas.length !== (S.settings.plegadas || []).length) persist({ plegadas });
   updateChrome();
-  registerCommands();
 }
 
 /** Mover un mazo de carpeta escribe SIN tocar updatedAt: organizar no es
@@ -373,8 +368,8 @@ function terminarSesion() {
 /**
  * Prende o apaga el modo azaroso. Es un AJUSTE, no un modo de sesión: se
  * guarda en disco y la próxima cola ya nace en el orden que elegiste. Por eso
- * el botón del repaso, el segmentado de Ajustes y el comando de la paleta
- * entran todos por acá — son tres manijas de la misma perilla.
+ * el botón del repaso y el segmentado de Ajustes entran los dos por acá: son
+ * dos manijas de la misma perilla.
  *
  * En vivo reordena lo que falta, y arranca DESPUÉS de la ficha actual: la que
  * estás mirando no se mueve. Cambiar la pregunta abajo del mouse —o peor, con
@@ -386,7 +381,6 @@ function terminarSesion() {
 async function setAzar(azar) {
   if (!!S.settings.azar === azar) return;
   await persist({ azar });
-  registerCommands();      // el comando de la paleta se llama según el estado
 
   const ses = S.sesion;
   if (ses) {
@@ -1006,7 +1000,7 @@ function hojaFicha(f) {
 function viewRepaso(param) {
   const mazoId = param === 'todo' ? null : param;
 
-  // Entrar directo (paleta, arranque) sin sesión viva: se arma acá.
+  // Entrar directo desde el arranque sin sesión viva: se arma acá.
   if (!S.sesion || (S.sesion.mazoId || 'todo') !== (mazoId || 'todo')) {
     const cola = armarCola(mazoId ? fichasDe(mazoId) : S.fichas, reglas());
     if (!cola.length) {
@@ -1030,7 +1024,7 @@ function viewRepaso(param) {
     /* Con un overlay abierto no se toca nada: Escape es de él —cerrarlo— antes
        que de la sesión, y una calificación no puede salir de atrás de un
        modal. El guard va ANTES que todo lo demás por eso mismo. */
-    if (document.querySelector('.op-modal, .op-palette, .op-menu')) return;
+    if (document.querySelector('.op-modal, .op-menu')) return;
     if (e.key === ' ') { e.preventDefault(); ses.revelada ? null : revelar(); }
 
     // Salir. Sin overlay abierto, Escape es la puerta de la sesión.
@@ -1158,7 +1152,7 @@ function viewExamen(param) {
   /* Los atajos viven mientras vive la vista, como en el repaso. */
   const onKey = (e) => {
     if (e.target.closest?.('input, textarea')) return;
-    if (document.querySelector('.op-modal, .op-palette, .op-menu')) return;
+    if (document.querySelector('.op-modal, .op-menu')) return;
     if (e.key === 'Escape') { e.preventDefault(); abandonarExamen(); return; }
     if (ex.idx >= total) return;                    // en el resumen solo queda la puerta
 
@@ -2189,7 +2183,6 @@ async function importarPaquete(data, conProgreso) {
   }
 
   await loadAll();
-  registerCommands();
   updateChrome();
   Router.refresh();
   return { mazos: entrantes.length, fichas: total };
@@ -2318,7 +2311,6 @@ function wireShell() {
   document.querySelectorAll('.op-navitem').forEach((b) =>
     b.addEventListener('click', () => Router.go(b.dataset.view)));
 
-  document.getElementById('btn-palette')?.addEventListener('click', () => Palette.toggle());
   document.getElementById('btn-repasar')?.addEventListener('click', () => iniciarSesion(null));
 
   /* Delegación global: las vistas se repintan enteras, así que el cableado se
@@ -2377,7 +2369,7 @@ function wireShell() {
   // Enter y Espacio sobre una fila: la lista tiene que ser usable sin mouse.
   document.addEventListener('keydown', (e) => {
     // Escape suelta la selección, salvo que haya un overlay: ahí es de él.
-    if (e.key === 'Escape' && seleccion.size && !document.querySelector('.op-modal, .op-palette, .op-menu')) {
+    if (e.key === 'Escape' && seleccion.size && !document.querySelector('.op-modal, .op-menu')) {
       e.preventDefault();
       limpiarSeleccion();
       return;
@@ -2516,56 +2508,6 @@ function updateChrome() {
   } else {
     ctx.innerHTML = '';
   }
-}
-
-function registerCommands() {
-  Palette.clear();
-  Palette.register([
-    { id: 'repasar', group: 'Repasar', icon: 'zap', label: 'Repasar ahora', run: () => iniciarSesion(null) },
-    ...S.mazos.map((m) => ({
-      id: `rep-${m.id}`, group: 'Repasar', icon: 'zap', label: `Repasar ${m.name}`, hint: m.id,
-      run: () => iniciarSesion(m.id),
-    })),
-    {
-      id: 'azar', group: 'Repasar', icon: 'azar',
-      label: S.settings.azar ? 'Modo azaroso: apagar' : 'Modo azaroso: prender',
-      hint: S.settings.azar ? 'al azar' : 'por prioridad',
-      run: () => setAzar(!S.settings.azar),
-    },
-    ...S.carpetas.map((c) => ({
-      id: `repc-${c.id}`, group: 'Repasar', icon: 'zap', label: `Repasar la carpeta ${c.name}`, hint: c.id,
-      run: () => repasarCarpeta(c.id),
-    })),
-    { id: 'examen', group: 'Examen', icon: 'examen', label: 'Tomar examen de todo', run: () => iniciarExamen(null) },
-    ...S.mazos.map((m) => ({
-      id: `ex-${m.id}`, group: 'Examen', icon: 'examen', label: `Examen de ${m.name}`, hint: m.id,
-      run: () => iniciarExamen(m.id),
-    })),
-    ...S.carpetas.map((c) => ({
-      id: `exc-${c.id}`, group: 'Examen', icon: 'examen', label: `Examen de la carpeta ${c.name}`, hint: c.id,
-      run: () => iniciarExamen(null, { pool: fichasDeCarpeta(c.id), nombre: c.name }),
-    })),
-    { id: 'nuevo-mazo', group: 'Crear', icon: 'plus', label: 'Nuevo mazo', run: nuevoMazoModal },
-    { id: 'nueva-carpeta', group: 'Crear', icon: 'folder', label: 'Nueva carpeta', run: nuevaCarpetaModal },
-    { id: 'importar', group: 'Crear', icon: 'download', label: 'Importar un mazo…', run: importarModal },
-    ...(S.mazos.length ? [
-      { id: 'exportar-todo', group: 'Compartir', icon: 'upload', label: 'Exportar todos los mazos…', run: () => exportarMazos(S.mazos) },
-      ...S.mazos.map((m) => ({
-        id: `exp-${m.id}`, group: 'Compartir', icon: 'upload', label: `Exportar ${m.name}…`, hint: m.id,
-        run: () => exportarMazos([m]),
-      })),
-    ] : []),
-    { id: 'nav-inicio', group: 'Ir a', icon: 'home', label: 'Inicio', run: () => Router.go('inicio') },
-    { id: 'nav-mazos', group: 'Ir a', icon: 'layers', label: 'Mazos', run: () => Router.go('mazos') },
-    { id: 'nav-examenes', group: 'Ir a', icon: 'examen', label: 'Exámenes', hint: 'el historial', run: () => Router.go('examenes') },
-    { id: 'nav-stats', group: 'Ir a', icon: 'grafico', label: 'Estadísticas', hint: 'el progreso', run: () => Router.go('stats') },
-    { id: 'nav-piezas', group: 'Ir a', icon: 'grid', label: 'Piezas', run: () => Router.go('piezas') },
-    { id: 'nav-ajustes', group: 'Ir a', icon: 'settings', label: 'Ajustes', run: () => Router.go('ajustes') },
-    ...S.mazos.map((m) => ({
-      id: `open-${m.id}`, group: 'Abrir', icon: 'layers', label: m.name, hint: m.id,
-      run: () => Router.go('mazo', m.id),
-    })),
-  ]);
 }
 
 /* ══ Semilla ═════════════════════════════════════════════════════════════════
@@ -2711,7 +2653,6 @@ async function wireUpdates() {
 async function boot() {
   Icons.mount(document);
   Tooltip.init();
-  Palette.init({ placeholder: 'Buscar comandos y mazos…' });
   initClickFlash();
   initScrollFades();
   wireShell();
@@ -2726,7 +2667,6 @@ async function boot() {
     return;
   }
 
-  registerCommands();
   updateChrome();
   Router.onChange(updateChrome);
   Router.go('inicio');

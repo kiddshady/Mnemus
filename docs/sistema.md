@@ -27,7 +27,6 @@ componente escribe un valor crudo.
 | `--op-s1` | Hoja (alfa de blanco) | Rail, titlebar, statusbar |
 | `--op-s2` | Hoja | Card, panel, fila elevada |
 | `--op-s3` | Hoja | Menú, modal, popover, tooltip |
-| `--op-s4` | Hoja | Paleta de comandos, lo más alto |
 
 Cuanto más alto flota algo, más luz junta. Como todo es alfa sobre el fondo,
 el mismo componente funciona sobre la niebla, sobre una card o sobre un modal
@@ -38,7 +37,7 @@ sin declarar variantes por contexto.
 | Token | Qué es |
 |---|---|
 | `--op-glass` | `backdrop-filter` listo: `blur(--op-blur) saturate(135%)` |
-| `--op-glass-heavy` | Lo mismo, ×1.65 — titlebar, menú, modal, paleta |
+| `--op-glass-heavy` | Lo mismo, ×1.65 — titlebar, menú, modal |
 | `--op-edge-lit` | El canto superior iluminado de una hoja |
 | `--op-sheet` | El contorno de hoja completo: canto + hairline perimetral |
 
@@ -156,8 +155,8 @@ contenido no se pierde en la nada sino que muere contra un borde.
 Modificadores: `--line-top` · `--line-bottom` (y `--line-left` · `--line-right`
 en `.op-scroll-x`). El shell ya los aplica donde corresponde, y con `:has()`, así
 que si sacás la pieza que cerraba ese lado el fade vuelve solo: rail contra su
-pie, inspector contra el suyo, vista contra la statusbar, paleta entre buscador y
-pie, modal contra su pie. **El menú no esfuma nunca** — su hairline lo cierra por
+pie, inspector contra el suyo, vista contra la statusbar y modal contra su pie.
+**El menú no esfuma nunca** — su hairline lo cierra por
 los cuatro lados, y como máscara y borde viven en el mismo elemento, el fade le
 comía el propio hairline. El tamaño lo da `--op-fade`, y el contenedor lleva
 padding ≥ ese valor para que en reposo la banda no coma el primer ni el último
@@ -352,7 +351,6 @@ Toast.error(title, text);
 Menu.show(anchorEl, items, { align: 'end' });
 await Modal.show({ title, sub, body, actions, width, dismissible });
 await Modal.confirm({ title, sub, confirmLabel, danger });
-Palette.init(); Palette.register([...]); Palette.toggle();
 ```
 
 **Tooltips**: declarativos. `data-tip="texto"`, opcionalmente `data-tip-side`
@@ -364,10 +362,6 @@ más `{ sep: true }` y `{ groupLabel }`.
 **Modal**: devuelve una promesa con el `value` del botón que se apretó (`null`
 si se cerró). El `body` puede ser HTML o un `Node` — si es un nodo, podés leer
 sus campos después de que cierre. Atrapa el foco y cierra con Escape.
-
-**Palette**: comandos `{ id, label, group, icon, hint, run }`. Match por
-subsecuencia: "rndg" encuentra "Research Digest". Re-registrá cuando cambien
-los datos (`Palette.clear()` primero).
 
 ---
 
