@@ -8,7 +8,7 @@
    en una igualdad que falla o no falla.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { armarExamen, pct, veredicto, registro, promedio } from '../renderer/js/examen.js';
+import { armarExamen, pct, veredicto, registro, promedio, contestadas, retirar } from '../renderer/js/examen.js';
 
 let pass = 0; let fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FALLA ${n} ${x}`); } };
@@ -86,6 +86,22 @@ ok('el examen de todo va con mazo null',
 const basicaFallada = registro({ ...ex, falladas: [{ ficha: basica, elegida: null }] }, { now: T0 }).falladas[0];
 ok('en una básica no hay "cuál era": la respuesta es el back',
   basicaFallada.respuesta === null && basicaFallada.back === 'La mitral.');
+
+console.log('\n5-bis. Retirarse: se corrige lo contestado');
+const base = { mazoId: 'm-0001', cola: [basica, mc, vf], correctas: 1, falladas: [], revelada: false, elegida: null };
+ok('sin nada destapado, cuentan las que quedaron atrás', contestadas({ ...base, idx: 1 }) === 1);
+ok('una interactiva destapada ya está contestada',
+  contestadas({ ...base, idx: 1, revelada: true, elegida: 0 }) === 2);
+ok('una básica destapada sin veredicto todavía no',
+  contestadas({ ...base, idx: 0, revelada: true }) === 0);
+
+const ret = retirar({ ...base, idx: 1, revelada: true, elegida: 0 });
+ok('la cola se corta en lo contestado', ret.cola.length === 2 && ret.cola[1] === mc);
+ok('y el examen queda terminado', ret.idx === ret.cola.length && !ret.revelada && ret.elegida === null);
+ok('recordando cuántas tenía el armado', ret.planeadas === 3);
+const regRet = registro(ret, { now: T0 });
+ok('el registro: la nota es sobre lo contestado', regRet.total === 2 && regRet.planeadas === 3);
+ok('uno terminado no lleva planeadas', !('planeadas' in reg));
 
 console.log('\n6. El promedio del historial');
 ok('vacío no tiene promedio: 0', promedio([]) === 0);

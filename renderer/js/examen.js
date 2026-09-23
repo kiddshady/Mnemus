@@ -36,6 +36,37 @@ export function armarExamen(fichas, { cantidad, rand } = {}) {
   return barajar(fichas, rand).slice(0, n);
 }
 
+/**
+ * Cuántas preguntas cuentan como contestadas en un examen a medio camino:
+ * las que ya quedaron atrás, más la actual si es interactiva y ya se destapó
+ * — ahí la elección (o el rendirse) ya se anotó. Una básica destapada pero
+ * sin «la sabía / no la sabía» todavía no tiene veredicto: no cuenta.
+ */
+export function contestadas(ex) {
+  const actual = ex.cola[ex.idx];
+  return ex.idx + (ex.revelada && actual && esInteractiva(actual) ? 1 : 0);
+}
+
+/**
+ * Retirarse: el examen termina acá y se corrige lo contestado. La cola se
+ * corta a eso, así que desde afuera un examen retirado es un examen
+ * terminado más corto — el resumen, la nota y el registro salen por el mismo
+ * camino. Lo único que queda del plan original es `planeadas`, para poder
+ * decir en cuánto te retiraste. Las que faltaban no cuentan como falladas:
+ * lo que no se preguntó no se midió.
+ */
+export function retirar(ex) {
+  const n = contestadas(ex);
+  return {
+    ...ex,
+    planeadas: ex.cola.length,
+    cola: ex.cola.slice(0, n),
+    idx: n,
+    revelada: false,
+    elegida: null,
+  };
+}
+
 /** El puntaje, en porcentaje entero. Sin preguntas no hay nota: 0. */
 export function pct(correctas, total) {
   if (!total) return 0;
@@ -64,6 +95,9 @@ export function veredicto(p) {
  *
  * El nombre del mazo viaja adentro por la misma razón: renombrar el mazo no
  * reescribe tu historia con él. `mazo: null` es el examen de todo.
+ *
+ * Un examen retirado lleva además `planeadas`: `total` son las contestadas
+ * (la nota es sobre eso) y `planeadas` las que tenía el armado.
  */
 export function registro(ex, { nombre = null, now = Date.now() } = {}) {
   return {
@@ -71,6 +105,7 @@ export function registro(ex, { nombre = null, now = Date.now() } = {}) {
     nombre,
     fecha: now,
     total: ex.cola.length,
+    ...(ex.planeadas ? { planeadas: ex.planeadas } : {}),
     correctas: ex.correctas,
     falladas: ex.falladas.map(({ ficha: f, elegida }) => ({
       front: f.front,

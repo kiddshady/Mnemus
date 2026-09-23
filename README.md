@@ -77,17 +77,19 @@ respuesta que era, la que marcaste y su explicación. **Repasar las falladas**
 arma ahí mismo una sesión de repaso normal con solo eso — recién ahí el examen
 toca el plan de repaso, y lo hace por la puerta de siempre.
 
-Salir a mitad de examen sí pide confirmación, al revés que el repaso — y es la
-misma lógica, no una contradicción: el repaso guarda cada calificación al darla,
-así que irse no pierde nada; el examen no guarda nada hasta el final, así que
-irse tira lo contestado.
+**Retirarse** a mitad de examen no tira lo contestado: el examen termina ahí y
+se corrige sobre lo que llegaste a contestar, con la misma prueba corregida del
+final. Las que faltaban no cuentan ni a favor ni en contra — lo que no se
+preguntó no se midió. Pide confirmación, al revés que el repaso, porque un
+examen retirado no se retoma.
 
 ### El historial
 
-Cada examen **terminado** queda en la vista **Exámenes**: la fecha, la nota, y
-la revisión congelada de ese día — qué fallaste y qué marcaste, guardado como
+Cada examen rendido queda en la vista **Exámenes**: la fecha, la nota, y la
+revisión congelada de ese día — qué fallaste y qué marcaste, guardado como
 **texto**, no como referencias, así editar o borrar una ficha mañana no te
-reescribe la historia. Retirarse a la mitad no deja registro.
+reescribe la historia. Uno retirado queda con la nota de lo contestado y dice
+en cuánto te retiraste.
 
 El historial es tuyo y es editable: cada examen acepta una **nota al margen**
 (el contexto que el número no cuenta: «sin estudiar», «antes del parcial») y

@@ -518,8 +518,8 @@ app.whenReady().then(async () => {
 
   await contestar();
 
-  // Irse con una contestada pregunta: acá SÍ hay algo que perder (ver la
-  // simetría con el repaso, que se va sin preguntar porque ya guardó todo).
+  // Irse con una contestada pregunta: retirarse no se deshace (ver la
+  // simetría con el repaso, que se va sin preguntar).
   escape();
   await sleep(600);
   ok('salir a mitad de examen pide confirmación', await js(`!!document.querySelector('.op-modal')`));
@@ -611,6 +611,40 @@ app.whenReady().then(async () => {
     !(await js(`!!document.querySelector('[data-action="ver-examen"][data-arg=${JSON.stringify(reg.id)}]')`)));
   ok('y del disco', (await js(`window.opal.col('examenes').list()
     .then(l => l.filter(x => x.mazo === ${JSON.stringify(mazoId)}).length)`)) === 0);
+
+  /* Retirarse a la mitad: no se tira lo contestado. El examen termina ahí,
+     con la prueba corregida sobre lo que se llegó a contestar, y queda en el
+     historial diciendo en cuánto te retiraste. */
+  console.log('\n4-octies-bis. Retirarse a mitad de examen');
+  await click('[data-view="mazos"]');
+  await sleep(700);
+  await click(`[data-open-mazo="${mazoId}"]`);
+  await sleep(700);
+  await click(`[data-action="examen"][data-arg="${mazoId}"]`);
+  await sleep(600);
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1000);
+  await contestar();
+  escape();
+  await sleep(600);
+  await click('.op-modal__foot .op-btn--primary');
+  await sleep(1400);
+  ok('retirarse muestra la prueba corregida', await js(`!!document.querySelector('.mn-resultado')`));
+  ok('con las cifras de lo contestado: una de una, una sin contestar',
+    ['1-0-1-1', '0-1-1-1'].includes(await js(`[...document.querySelectorAll('.mn-resultado .op-stat__value')].map(e => e.textContent).join('-')`)),
+    String(await js(`[...document.querySelectorAll('.mn-resultado .op-stat__value')].map(e => e.textContent).join('-')`)));
+  const nota = await js(`document.getElementById('nota')?.textContent`);
+  ok('y la nota sobre eso', nota === '100' || nota === '0', String(nota));
+  const retirados = await js(`window.opal.col('examenes').list()
+    .then(l => l.filter(x => x.mazo === ${JSON.stringify(mazoId)}))`);
+  ok('quedó en el historial como retirado',
+    retirados.length === 1 && retirados[0].total === 1 && retirados[0].planeadas === 2,
+    JSON.stringify(retirados.map((x) => [x.total, x.planeadas])));
+  escape();
+  await sleep(900);
+  ok('del resumen se sale sin preguntar', !(await js(`!!document.querySelector('.op-modal')`))
+    && !(await js(`!!document.querySelector('.mn-resultado')`)));
+  for (const r of retirados) await js(`window.opal.col('examenes').remove(${JSON.stringify(r.id)})`);
 
   /* Las carpetas. Lo que se mide con lupa son las dos promesas de
      neutralidad: mover un mazo NO toca su updatedAt (organizar no es

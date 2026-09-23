@@ -36,7 +36,7 @@ import {
   validar as validarPaquete, resumen as resumenPaquete,
 } from './intercambio.js';
 import {
-  armarExamen, pct as puntaje, veredicto,
+  armarExamen, pct as puntaje, veredicto, contestadas as contestadasExamen, retirar as retirarExamen,
   registro as registroExamen, promedio as promedioExamenes,
 } from './examen.js';
 import { agrupar as agruparMazos } from './carpetas.js';
@@ -585,11 +585,13 @@ function iniciarExamen(mazoId = null, { pool: poolCustom, nombre: nombreCustom }
 }
 
 /**
- * La salida del examen SÍ pregunta, y la del repaso no — y no es incoherencia:
- * el repaso guarda cada calificación al momento de darla, así que irse no
- * pierde nada; el examen no escribe nada nunca, así que irse a la mitad tira
- * lo contestado. Confirmar tiene sentido exactamente cuando hay algo que
- * perder. Del resumen, en cambio, se sale sin preguntar: ya no queda nada.
+ * Retirarse a la mitad no tira lo contestado: el examen termina ahí y se
+ * corrige sobre lo que llegaste a contestar (ver retirar() en examen.js). Lo
+ * que no se preguntó no se midió, así que no cuenta ni a favor ni en contra.
+ *
+ * La salida SÍ pregunta, y la del repaso no: retirarse no se deshace — el
+ * examen no se retoma después. Sin nada contestado no hay nota que sacar y
+ * se sale sin preguntar, igual que del resumen.
  */
 async function abandonarExamen() {
   const ex = S.examen;
@@ -599,15 +601,18 @@ async function abandonarExamen() {
   }
 
   const terminado = ex.idx >= ex.cola.length;
-  const empezado = ex.idx > 0 || ex.revelada;
-  if (!terminado && empezado) {
+  const n = contestadasExamen(ex);
+  if (!terminado && n > 0) {
     const ok = await Modal.confirm({
-      title: '¿Abandonar el examen?',
-      sub: `Llevás ${ex.idx} de ${ex.cola.length} contestadas. Retirarse es salir sin nota: el examen no guarda nada.`,
-      confirmLabel: 'Abandonar',
-      danger: true,
+      title: '¿Retirarte del examen?',
+      sub: `Llevás ${n} de ${ex.cola.length} contestadas. Se corrige lo que contestaste; las que faltan no cuentan.`,
+      confirmLabel: 'Retirarme',
     });
-    if (!ok) return;
+    if (!ok || S.examen !== ex) return;
+    S.examen = retirarExamen(ex);
+    guardarExamen(S.examen);
+    Router.refresh();
+    return;
   }
   const { mazoId } = ex;
   S.examen = null;
@@ -684,9 +689,9 @@ function avanzarExamen() {
 }
 
 /**
- * Un examen terminado queda en el historial. Solo terminado: retirarse a la
- * mitad no deja registro — el confirm de la salida ya lo dice, «salir sin
- * nota», y un historial con exámenes a medias no mide nada.
+ * Un examen corregido queda en el historial — terminado o retirado. El
+ * retirado se guarda con la nota sobre lo contestado y lleva `planeadas`
+ * para que el historial diga en cuánto te retiraste.
  */
 async function guardarExamen(ex) {
   if (ex.guardado) return;
@@ -1180,10 +1185,13 @@ function viewExamen(param) {
   if (ex.idx >= total) {
     const nota = puntaje(ex.correctas, total);
     const correctaDe = (f) => opcionesDe(f)[indiceCorrecto(f)] ?? '';
+    const retirado = !!ex.planeadas;
 
     paint(head({
       title: titulo,
-      sub: 'La prueba, corregida',
+      sub: retirado
+        ? `Te retiraste con ${total} de ${ex.planeadas} contestadas: se corrigió eso`
+        : 'La prueba, corregida',
       crumbs,
     }) + `
       <div class="op-scroll op-grow">
@@ -1193,7 +1201,8 @@ function viewExamen(param) {
           <div class="mn-fin__cifras">
             <div class="op-stat"><span class="op-stat__value op-num">${ex.correctas}</span><span class="op-stat__label">Correctas</span></div>
             <div class="op-stat"><span class="op-stat__value op-num">${ex.falladas.length}</span><span class="op-stat__label">Incorrectas</span></div>
-            <div class="op-stat"><span class="op-stat__value op-num">${total}</span><span class="op-stat__label">Preguntas</span></div>
+            <div class="op-stat"><span class="op-stat__value op-num">${total}</span><span class="op-stat__label">${retirado ? 'Contestadas' : 'Preguntas'}</span></div>
+            ${retirado ? `<div class="op-stat"><span class="op-stat__value op-num">${ex.planeadas - total}</span><span class="op-stat__label">Sin contestar</span></div>` : ''}
           </div>
           <div class="op-row" style="gap:8px;margin-top:14px">
             ${ex.falladas.length ? '<button class="op-btn op-btn--primary op-flashable" data-ex="repasar-falladas"><i data-icon="zap"></i> Repasar las falladas</button>' : ''}
@@ -1245,7 +1254,7 @@ function viewExamen(param) {
     crumbs,
     actions: `
       <button class="op-btn op-btn--ghost op-flashable" data-action="abandonar-examen" data-tip-key="Esc"
-              data-tip="Retirarse es salir sin nota: el examen no guarda nada"><i data-icon="stop"></i> Retirarse</button>`,
+              data-tip="Terminar acá: se corrige lo que llevás contestado"><i data-icon="stop"></i> Retirarse</button>`,
   }) + `
     <div class="mn-repaso">
       <div class="mn-progreso">
@@ -1317,7 +1326,7 @@ function viewExamenes() {
     : empty({
       icon: 'examen',
       title: 'Todavía no rendiste ninguno',
-      text: 'Cada examen que termines queda acá: la nota, qué fallaste, y lo que quieras anotarle. Retirarse a la mitad no deja registro.',
+      text: 'Cada examen que rindas queda acá: la nota, qué fallaste, y lo que quieras anotarle. Si te retirás a la mitad, queda con la nota de lo que contestaste.',
       actions: S.fichas.length
         ? '<button class="op-btn op-btn--secondary op-flashable" data-action="examen"><i data-icon="examen"></i> Tomar el primero</button>'
         : '',
@@ -1331,7 +1340,7 @@ function rowExamen(r) {
       ${mark(nota >= 50 ? 'done' : 'failed')}
       <div class="op-listitem__main">
         <span class="op-listitem__title">${esc(r.nombre || 'Todos los mazos')}</span>
-        <span class="op-listitem__sub">${esc(relTime(r.fecha))} · ${r.correctas} de ${plural(r.total, 'pregunta')}${r.comentario ? ` · ${esc(r.comentario)}` : ''}</span>
+        <span class="op-listitem__sub">${esc(relTime(r.fecha))} · ${r.correctas} de ${plural(r.total, 'pregunta')}${r.planeadas ? ` · retirado (${r.total} de ${r.planeadas})` : ''}${r.comentario ? ` · ${esc(r.comentario)}` : ''}</span>
       </div>
       <div class="op-listitem__aside">
         <span class="op-chip op-num">${nota}%</span>
@@ -1359,7 +1368,7 @@ async function verExamen(id) {
   body.innerHTML = `
     <div class="op-kv">
       <span class="op-kv__k">Nota</span><span class="op-kv__v"><span class="op-num">${nota}%</span> — ${esc(veredicto(nota))}</span>
-      <span class="op-kv__k">Cifras</span><span class="op-kv__v op-num">${r.correctas} de ${r.total} correctas</span>
+      <span class="op-kv__k">Cifras</span><span class="op-kv__v op-num">${r.correctas} de ${r.total} correctas${r.planeadas ? ` · te retiraste con ${r.total} de ${r.planeadas} contestadas` : ''}</span>
       <span class="op-kv__k">Fecha</span><span class="op-kv__v">${esc(fecha)}</span>
     </div>
     <div class="op-field">
