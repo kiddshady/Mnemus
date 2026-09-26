@@ -36,6 +36,7 @@ const path = require('path');
 const ipc = require('./src/ipc.cjs');
 const store = require('./src/store.cjs');
 const update = require('./src/update.cjs');
+const puente = require('./src/puente.cjs');
 
 /* Color base de arranque. Tiene que coincidir con --op-bg de tokens.css.
    Como --op-bg es oklch y Electron solo entiende hex, el renderer se lo vuelve
@@ -182,6 +183,7 @@ app.whenReady().then(async () => {
   // La ventana se pasa como getter y no como valor: cuando esto corre todavía
   // no existe, y además se reemplaza si se cierra y se vuelve a abrir.
   update.register(() => win);
+  puente.register(() => win);
   createWindow(await loadWindowState());
 });
 

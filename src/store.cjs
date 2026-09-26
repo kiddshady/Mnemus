@@ -68,6 +68,10 @@ const DEFAULT_SETTINGS = {
       estado efímero: la carpeta que plegaste ayer sigue plegada hoy. */
   plegadas: [],
   ultimaVista: null,
+  /** El puente con Mnemus Mobile (ver src/puente.cjs). Apagado de fábrica:
+      un puerto abierto en la red es algo que se prende a conciencia. La
+      clave nace la primera vez que se prende. */
+  movil: { activo: false, clave: null, puerto: 3931 },
 };
 
 /** Migraciones: cada función lleva el archivo de la versión N a la N+1.

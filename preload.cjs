@@ -67,6 +67,26 @@ contextBridge.exposeInMainWorld('opal', {
     abrirJSON: () => call('file:open-json'),
   },
 
+  /** El puente con Mnemus Mobile (src/puente.cjs). `onSync` recibe el paquete
+      del celu y devuelve la instantánea: el puente solo transporta, la
+      ventana es la que aplica (ver el encabezado del puente). */
+  movil: {
+    estado: () => call('movil:estado'),
+    activar: (activo) => call('movil:activar', activo),
+    regenerar: () => call('movil:regenerar'),
+    onSync: (cb) => {
+      const handler = async (_e, id, paquete) => {
+        try {
+          ipcRenderer.send('movil:respuesta', id, { ok: true, data: await cb(paquete) });
+        } catch (err) {
+          ipcRenderer.send('movil:respuesta', id, { ok: false, error: err?.message || String(err) });
+        }
+      };
+      ipcRenderer.on('movil:sync', handler);
+      return () => ipcRenderer.off('movil:sync', handler);
+    },
+  },
+
   /** Documento suelto: un borrador, un caché, el último estado de la UI. */
   doc: {
     read: (name, fallback = null) => call('doc:read', name, fallback),

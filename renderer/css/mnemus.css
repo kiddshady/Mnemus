@@ -670,3 +670,16 @@
 .mn-update__estado { transition: opacity var(--op-t-1) var(--op-ease-soft); }
 .mn-update__estado.is-cambiando { opacity: 0; }
 .mn-update .op-btn { flex: 0 0 auto; }
+
+/* ── El puente con el celular, en Ajustes → Celular ──
+   La dirección y la clave solo existen con el interruptor prendido, y se
+   despliegan con el truco 0fr → 1fr: alto desconocido sin medirlo. */
+.mn-movil {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--op-t-3) var(--op-ease-both), opacity var(--op-t-2) var(--op-ease-soft);
+}
+.mn-movil.is-on { grid-template-rows: 1fr; opacity: 1; }
+.mn-movil__inner { overflow: hidden; min-height: 0; }
+.mn-movil__error { color: var(--op-danger); }

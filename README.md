@@ -83,6 +83,18 @@ final. Las que faltaban no cuentan ni a favor ni en contra — lo que no se
 preguntó no se midió. Pide confirmación, al revés que el repaso, porque un
 examen retirado no se retoma.
 
+### En el celular
+
+[Mnemus Mobile](../MnemusMobile) estudia sin conexión y se sincroniza con la PC por la red de
+casa. En **Ajustes › Celular** se prende el puente: muestra la dirección y la clave que se
+copian en el celu. Apagado de fábrica, porque un puerto abierto en la red se prende a
+conciencia.
+
+Del celu no vuelven estados sino hechos («a tal hora califiqué tal ficha con tal nota»), y la
+PC los vuelve a pasar por SM-2 sobre lo que tiene: si también repasaste acá, las dos historias
+se suman. Cada hecho lleva un id, así que un reintento después de un corte no cuenta nada dos
+veces. La lógica está en `renderer/js/sincro.js`; el servidor, en `src/puente.cjs`.
+
 ### El historial
 
 Cada examen rendido queda en la vista **Exámenes**: la fecha, la nota, y la

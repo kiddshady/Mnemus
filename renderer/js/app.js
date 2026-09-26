@@ -44,6 +44,7 @@ import {
   claveDia, actividadPorDia, racha, cargaProxima,
   distribucion, masOlvidadas, notasExamenes,
 } from './stats.js';
+import { instantanea, validarPaquete as validarSincro, aplicar as aplicarSincro } from './sincro.js';
 
 const api = window.opal;
 const mazosCol = api.col('mazos');
@@ -65,6 +66,8 @@ Icons.add({
       + '<path d="M4.2 8v2.8c0 1.05 1.7 1.9 3.8 1.9s3.8-.85 3.8-1.9V8"/><path d="M14.3 6.3v3.2"/>',
   /* Estadísticas: tres barras que crecen sobre su base. */
   grafico: '<path d="M2.4 13.4h11.2"/><path d="M4.6 13.4V9.6M8 13.4V6M11.4 13.4V3.2"/>',
+  /* Celular: el cuerpo redondeado y la ranura del parlante abajo. */
+  celular: '<rect x="4.4" y="1.6" width="7.2" height="12.8" rx="1.7"/><path d="M7.1 12.1h1.8"/>',
 });
 
 /* Las palabras del dominio sobre los estados del sistema. */
@@ -90,6 +93,8 @@ const S = {
   sesion: null,
   /** El examen en curso (o ya corregido, mientras el resumen esté a la vista), o null. */
   examen: null,
+  /** La última sincronía con el celular: { ts, repasos, examenes, … }, o null. */
+  ultimaSincro: null,
 };
 
 async function loadAll() {
@@ -1634,6 +1639,11 @@ function viewAjustes() {
         </div>
 
         <div class="op-section">
+          <div class="op-section__head"><span class="op-section__title">Celular</span></div>
+          <div class="op-card"><div class="op-card__body" id="movil"></div></div>
+        </div>
+
+        <div class="op-section">
           <div class="op-section__head"><span class="op-section__title">Datos</span></div>
           <div class="op-card"><div class="op-card__body">
             <div class="op-kv">
@@ -1679,6 +1689,146 @@ function viewAjustes() {
     else buscarUpdate();
   });
   pintarUpdate({ animar: false });
+  pintarMovil();
+}
+
+/* ── Celular ─────────────────────────────────────────────────────────────────
+   El puente vive en el proceso principal (src/puente.cjs); acá se prende, se
+   muestra la dirección y la clave para copiarlas en el celu, y se aplica lo
+   que llega. */
+
+async function pintarMovil() {
+  const caja = document.getElementById('movil');
+  if (!caja || !api.movil) return;
+  const e = await api.movil.estado().catch(() => null);
+  if (!e || !document.body.contains(caja)) return;
+
+  caja.innerHTML = `
+    <label class="op-row" style="gap:10px">
+      <button class="op-switch" id="movil-switch"></button>
+      <span class="op-label">Sincronizar con Mnemus Mobile</span>
+    </label>
+    <p class="op-meta" style="margin-top:10px;line-height:1.65">
+      El celu estudia sin conexión y, cuando está en la misma red que la PC, te devuelve los repasos
+      y los exámenes. Las fichas se escriben acá: el celu recibe los mazos y los repasa.
+    </p>
+    <div class="mn-movil" id="movil-panel"><div class="mn-movil__inner" id="movil-datos"></div></div>`;
+  llenarMovil(e);
+
+  caja.querySelector('#movil-switch').addEventListener('click', async () => {
+    const activo = !caja.querySelector('#movil-switch').classList.contains('is-on');
+    // El interruptor y el despliegue responden ya; los datos llegan al volver.
+    caja.querySelector('#movil-switch').classList.toggle('is-on', activo);
+    caja.querySelector('#movil-panel').classList.toggle('is-on', activo);
+    const nuevo = await attempt(() => api.movil.activar(activo), { errorTitle: 'No se pudo cambiar el puente' });
+    llenarMovil(nuevo || await api.movil.estado());
+  });
+  caja.addEventListener('click', async (ev) => {
+    if (!ev.target.closest('#movil-clave')) return;
+    const ok = await Modal.confirm({
+      title: '¿Generar otra clave?',
+      sub: 'El celular que ya estaba conectado deja de poder sincronizar hasta que le pongas la nueva.',
+      confirmLabel: 'Generar',
+    });
+    if (!ok) return;
+    const nuevo = await attempt(() => api.movil.regenerar(), { errorTitle: 'No se pudo generar la clave' });
+    if (nuevo) llenarMovil(nuevo);
+  });
+}
+
+/** Los datos del puente adentro del bloque desplegable. Se reemplaza solo
+    el interior: el contenedor queda, y con él la transición del despliegue. */
+function llenarMovil(e) {
+  const datos = document.getElementById('movil-datos');
+  if (!datos || !e) return;
+  document.getElementById('movil-switch')?.classList.toggle('is-on', e.activo);
+  document.getElementById('movil-panel')?.classList.toggle('is-on', e.activo);
+
+  const grupos = (c) => (c || '').match(/.{1,4}/g)?.join(' ') || '—';
+  const u = S.ultimaSincro;
+  datos.innerHTML = `
+    <div class="op-kv" style="margin-top:14px">
+      <span class="op-kv__k">Dirección</span>
+      <span class="op-kv__v op-col" style="gap:4px">${e.direcciones.length
+        ? e.direcciones.map((d) => `<span><span class="op-mono op-copyable" data-copy="${esc(`${d.ip}:${e.puerto}`)}">${esc(d.ip)}:${esc(e.puerto)}</span><span class="op-meta"> · ${esc(d.tailscale ? 'Tailscale, sirve también fuera de casa' : d.nombre)}</span></span>`).join('')
+        : '<span class="op-meta">Esta PC no está conectada a ninguna red.</span>'}</span>
+      <span class="op-kv__k">Clave</span>
+      <span class="op-kv__v"><span class="op-mono op-copyable" data-copy="${esc(e.clave || '')}">${esc(grupos(e.clave))}</span></span>
+      <span class="op-kv__k">Última vez</span>
+      <span class="op-kv__v">${u
+        ? `${esc(relTime(u.ts))} · ${plural(u.repasos || 0, 'repaso')}${u.examenes ? ` · ${plural(u.examenes, 'examen', 'exámenes')}` : ''}`
+        : '<span class="op-meta">Todavía no se sincronizó ningún celular.</span>'}</span>
+    </div>
+    ${e.error ? `<p class="op-meta mn-movil__error" style="margin-top:12px">${esc(e.error)}</p>` : ''}
+    <p class="op-meta" style="margin-top:12px;line-height:1.65">
+      La primera vez, Windows pregunta si deja que Mnemus reciba conexiones: aceptá para redes privadas.
+    </p>
+    <div class="op-row" style="gap:8px;margin-top:12px">
+      <button class="op-btn op-btn--ghost op-flashable" id="movil-clave"><i data-icon="retry"></i> Generar otra clave</button>
+    </div>`;
+  Icons.mount(datos);
+}
+
+/* Una sincronía a la vez: dos pedidos solapados leerían la misma lista de
+   aplicados y el segundo volvería a aplicar lo del primero. */
+let colaSincro = Promise.resolve();
+function recibirSincro(paquete) {
+  const turno = colaSincro.then(() => aplicarSincroLocal(paquete));
+  colaSincro = turno.catch(() => {});
+  return turno;
+}
+
+async function aplicarSincroLocal(paquete) {
+  const problema = validarSincro(paquete);
+  if (problema) throw new Error(problema);
+
+  const previo = await api.doc.read('sincro', null);
+  const r = aplicarSincro(
+    { fichas: S.fichas, actividad: S.actividad, examenes: S.examenes },
+    paquete, previo?.aplicados || {},
+  );
+
+  /* La lista de aplicados se escribe ANTES que las fichas. Si algo se corta
+     en el medio, el reintento del celu va a encontrar sus repasos como ya
+     aplicados y no los vuelve a contar: se pierde un repaso (la ficha vuelve
+     a vencer y la repasás de nuevo) en vez de inflar un intervalo con uno que
+     nunca pasó. De los dos errores posibles, este es el que no miente. */
+  const ultima = { ts: Date.now(), ...r.cuenta };
+  await api.doc.write('sincro', { aplicados: r.aplicados, ultima });
+  S.ultimaSincro = ultima;
+
+  for (const f of r.fichas) await saveFicha(f);
+  for (const a of r.actividad) {
+    const saved = await actividadCol.save(a);
+    S.actividad = [saved, ...S.actividad.filter((x) => x.id !== saved.id)];
+  }
+  for (const reg of r.examenes) {
+    await saveExamen({ ...reg, id: await examenesCol.nextId('e') });
+  }
+
+  // Un repaso abierto en la PC tiene copias de las fichas en su cola: se
+  // cambian por las vivas, o la próxima calificación pisaría lo del celu.
+  if (S.sesion && r.fichas.length) {
+    const vivas = new Map(S.fichas.map((f) => [f.id, f]));
+    S.sesion.cola = S.sesion.cola.map((f) => vivas.get(f.id) || f);
+  }
+
+  if (r.cuenta.repasos || r.cuenta.examenes) {
+    Toast.show({
+      title: 'Sincronizado con el celular',
+      text: [
+        r.cuenta.repasos ? plural(r.cuenta.repasos, 'repaso') : null,
+        r.cuenta.examenes ? plural(r.cuenta.examenes, 'examen', 'exámenes') : null,
+      ].filter(Boolean).join(' y ') + ' llegaron del celu.',
+      icon: 'celular',
+    });
+  }
+  // Lo que está en pantalla se repinta, salvo un repaso o un examen: esas
+  // vistas se dibujan con el velo puesto y taparían lo que estabas leyendo.
+  if (!['repaso', 'examen'].includes(Router.name)) Router.refresh();
+  else updateChrome();
+
+  return instantanea(S, { version: S.info?.version || null });
 }
 
 async function persist(patch) {
@@ -2680,6 +2830,10 @@ async function boot() {
   Router.onChange(updateChrome);
   Router.go('inicio');
   wireUpdates();
+  if (api.movil) {
+    api.movil.onSync(recibirSincro);
+    S.ultimaSincro = (await api.doc.read('sincro', null).catch(() => null))?.ultima || null;
+  }
 
   raf2(() => {
     const splash = document.getElementById('boot-splash');

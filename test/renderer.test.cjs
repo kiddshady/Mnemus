@@ -33,6 +33,9 @@ app.whenReady().then(async () => {
   // Los canales de actualización, como en main.cjs. Sin empacar solo contestan
   // «nada que hacer», que es justo lo que el humo tiene que ver.
   require(path.join(ROOT, 'src', 'update.cjs')).register(() => null);
+  // El puente, como en main.cjs. Apagado de fábrica: no abre nada hasta el 8-bis.
+  let winPuente = null;
+  require(path.join(ROOT, 'src', 'puente.cjs')).register(() => winPuente);
 
   const win = new BrowserWindow({
     x: -20000, y: -20000, width: W, height: H,
@@ -40,6 +43,7 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(ROOT, 'preload.cjs'), contextIsolation: true },
   });
   const errores = [];
+  winPuente = win;
   win.webContents.on('console-message', (e) => { if (e.level >= 2) errores.push(`${e.level}: ${e.message}`); });
   await win.loadFile(path.join(ROOT, 'renderer', 'index.html'));
   win.show();
@@ -1170,6 +1174,71 @@ app.whenReady().then(async () => {
   ok('el tooltip contiene su texto (nada cuelga afuera del vidrio)', rutas.tip?.dentroDeSi === true, JSON.stringify(rutas.tip));
   ok('y queda centrado sobre el ancla (o clampeado al borde) y en ventana',
     rutas.tip?.centradoOClampeado === true && rutas.tip?.enVentana === true, JSON.stringify(rutas.tip));
+
+  /* El puente con el celular, por HTTP de verdad y contra la ventana viva.
+     Lo que se mide es el viaje entero: el paquete entra por la red, la
+     ventana lo aplica con sus helpers, el disco queda con la srs pasada por
+     SM-2, y un reintento del MISMO paquete (la respuesta que se perdió en el
+     Wi-Fi) no cuenta dos veces. Puerto propio del test, y todo vuelve a como
+     estaba al final. */
+  console.log('\n8-septies. El puente con el celular');
+  const movilPrevio = await js(`window.opal.settings.get().then(s => s.movil)`);
+  const sincroPrevio = await js(`window.opal.doc.read('sincro', null)`);
+  await js(`window.opal.settings.save({ movil: { activo: false, clave: null, puerto: 39317 } })`);
+  const estMovil = await js(`window.opal.movil.activar(true)`);
+  ok('prenderlo genera una clave', /^[a-z2-9]{20}$/.test(estMovil.clave || ''), JSON.stringify(estMovil));
+  ok('y abre el puerto', estMovil.escuchando === true, estMovil.error || '');
+  const base = 'http://127.0.0.1:39317';
+  const ping = await fetch(`${base}/api/ping`).then((r) => r.json()).catch(() => null);
+  ok('el ping contesta sin clave', ping?.app === 'mnemus', JSON.stringify(ping));
+  const mala = await fetch(`${base}/api/sync`, { method: 'POST', body: '{}', headers: { Authorization: 'Bearer mala' } });
+  ok('con la clave equivocada: 401', mala.status === 401);
+
+  const fichaSync = await js(`window.opal.col('fichas').list().then(l => l.find(f => f.mazo === ${JSON.stringify(mazoId)}))`);
+  const tsSync = Date.now();
+  const paqueteSync = {
+    protocolo: 1,
+    repasos: [{ id: `humo-r-${tsSync}`, ficha: fichaSync.id, q: 5, ts: tsSync }],
+    examenes: [{ id: `humo-e-${tsSync}`, registro: { mazo: mazoId, nombre: 'Humo', fecha: tsSync, total: 1, correctas: 1, falladas: [] } }],
+  };
+  const postSync = (p) => fetch(`${base}/api/sync`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${estMovil.clave}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(p),
+  });
+  const r1 = await postSync(paqueteSync);
+  const snap = await r1.json();
+  ok('la sincronía contesta 200 con la instantánea', r1.status === 200 && Array.isArray(snap.fichas),
+    `${r1.status} ${JSON.stringify(snap).slice(0, 160)}`);
+  const trasSync = await js(`window.opal.col('fichas').get(${JSON.stringify(fichaSync.id)})`);
+  ok('el repaso del celu llegó al disco pasado por SM-2',
+    trasSync.srs.reps === (fichaSync.srs?.reps || 0) + 1, `${JSON.stringify(fichaSync.srs)} → ${JSON.stringify(trasSync.srs)}`);
+  ok('y la instantánea que vuelve ya lo trae',
+    snap.fichas.find((f) => f.id === fichaSync.id)?.srs?.reps === trasSync.srs.reps);
+  await sleep(300);
+  ok('la ventana avisa que llegó algo del celu',
+    await js(`[...document.querySelectorAll('.op-toast')].some(t => t.textContent.includes('Sincronizado'))`));
+
+  const r2 = await postSync(paqueteSync);
+  await r2.json();
+  const trasReintento = await js(`window.opal.col('fichas').get(${JSON.stringify(fichaSync.id)})`);
+  ok('el reintento del mismo paquete no cuenta dos veces', trasReintento.srs.reps === trasSync.srs.reps,
+    `${trasSync.srs.reps} → ${trasReintento.srs.reps}`);
+  const exSync = await js(`window.opal.col('examenes').list().then(l => l.filter(x => x.origen === ${JSON.stringify(`humo-e-${tsSync}`)}).length)`);
+  ok('y el examen del celu quedó una sola vez en el historial', exSync === 1, String(exSync));
+
+  await click('[data-view="ajustes"]');
+  await sleep(1200);
+  ok('Ajustes muestra el puente prendido con su clave', await js(`(() => {
+    const p = document.getElementById('movil-panel');
+    return !!p && p.classList.contains('is-on') && p.textContent.includes(${JSON.stringify(estMovil.clave.slice(0, 4))});
+  })()`));
+
+  const apagado = await js(`window.opal.movil.activar(false)`);
+  const pingApagado = await fetch(`${base}/api/ping`).then(() => true).catch(() => false);
+  ok('apagarlo cierra el puerto', apagado.escuchando === false && pingApagado === false);
+  await js(`window.opal.settings.save({ movil: ${JSON.stringify(movilPrevio)} })`);
+  await js(`window.opal.doc.write('sincro', ${JSON.stringify(sincroPrevio)})`);
 
   console.log('\n9. Las reglas de oro');
   const glifos = await js(`(() => {
