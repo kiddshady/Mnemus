@@ -678,8 +678,19 @@
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
-  transition: grid-template-rows var(--op-t-3) var(--op-ease-both), opacity var(--op-t-2) var(--op-ease-soft);
+  /* Plegado no es solo invisible: con el puente apagado, el Tab caía en
+     «Generar otra clave» sin verse. visibility lo saca del orden del teclado,
+     pero recién cuando termina de plegarse, para no cortar la salida. */
+  visibility: hidden;
+  transition: grid-template-rows var(--op-t-3) var(--op-ease-both), opacity var(--op-t-2) var(--op-ease-soft),
+    visibility 0s linear var(--op-t-3);
 }
-.mn-movil.is-on { grid-template-rows: 1fr; opacity: 1; }
+.mn-movil.is-on {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition: grid-template-rows var(--op-t-3) var(--op-ease-both), opacity var(--op-t-2) var(--op-ease-soft),
+    visibility 0s;
+}
 .mn-movil__inner { overflow: hidden; min-height: 0; }
 .mn-movil__error { color: var(--op-danger); }

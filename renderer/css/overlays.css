@@ -49,7 +49,7 @@
    se suspende porque la superficie sea chica. Cada uno lleva un fade a su
    escala, y su padding vertical lo iguala para que en reposo no coma ítems.
 
-   Pero estos tres están casi todos cerrados por una línea, y el fade solo va
+   Pero estos dos están casi todos cerrados por una línea, y el fade solo va
    donde el corte es al aire. El único lado al aire acá es el de arriba del
    modal, contra su cabecera. Cada --op-fade se queda igual aunque el lado esté
    apagado: es la escala del esfumado de esa superficie, y si mañana desaparece

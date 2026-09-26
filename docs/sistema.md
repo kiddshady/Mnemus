@@ -27,6 +27,7 @@ componente escribe un valor crudo.
 | `--op-s1` | Hoja (alfa de blanco) | Rail, titlebar, statusbar |
 | `--op-s2` | Hoja | Card, panel, fila elevada |
 | `--op-s3` | Hoja | Menú, modal, popover, tooltip |
+| `--op-s4` | Hoja | Lo más alto: lo que flota sobre todo |
 
 Cuanto más alto flota algo, más luz junta. Como todo es alfa sobre el fondo,
 el mismo componente funciona sobre la niebla, sobre una card o sobre un modal
@@ -155,8 +156,7 @@ contenido no se pierde en la nada sino que muere contra un borde.
 Modificadores: `--line-top` · `--line-bottom` (y `--line-left` · `--line-right`
 en `.op-scroll-x`). El shell ya los aplica donde corresponde, y con `:has()`, así
 que si sacás la pieza que cerraba ese lado el fade vuelve solo: rail contra su
-pie, inspector contra el suyo, vista contra la statusbar y modal contra su pie.
-**El menú no esfuma nunca** — su hairline lo cierra por
+pie, inspector contra el suyo, vista contra la statusbar, modal contra su pie. **El menú no esfuma nunca** — su hairline lo cierra por
 los cuatro lados, y como máscara y borde viven en el mismo elemento, el fade le
 comía el propio hairline. El tamaño lo da `--op-fade`, y el contenedor lleva
 padding ≥ ese valor para que en reposo la banda no coma el primer ni el último
@@ -206,6 +206,24 @@ padding ≥ ese valor para que en reposo la banda no coma el primer ni el últim
 
 La titlebar entera es zona de arrastre; lo que sea clickeable lleva
 `.op-no-drag`. `#op-layer` es donde se portalean todos los overlays.
+
+Los `.op-wincontrol` se clickean en todo el alto de la titlebar (maximizada,
+la esquina acierta la cruz), pero se ven como una pastilla de 28 px adentro:
+hover, press y el anillo de foco no llegan al canto de la ventana, donde se
+cortaban. Si la titlebar tiene otras piezas al lado (pestañas, por ejemplo),
+`--op-wincontrol-nudge` corre la pastilla en vertical para alinearla.
+
+### El anillo de foco no se corta
+
+El anillo de `base.css` sale **3.5px por fuera** del elemento. Todo lo que
+pueda recibir foco necesita ese aire hasta cualquier cosa que recorte (un
+`.op-scroll`, el borde de la ventana) y hasta el canto de la superficie que lo
+contiene. Donde no lo hay, el anillo va **hacia adentro**: así lo llevan el
+`.op-segmented__opt` (2px de carril) y la `.op-tr` con tabindex (va de borde a
+borde, muchas veces de una card). El rail deja `--op-2` arriba del nav por lo
+mismo, y de paso separa el botón principal de la navegación. `npm run smoke`
+lo mide en cada vista (9-bis): si sumás una pieza que pega su anillo contra un
+borde, falla ahí.
 
 ### Dentro de la vista
 
@@ -306,7 +324,9 @@ el SVG corrido más de medio píxel o desbordando.
 Las acciones van en `.op-rowactions` (aparecen con el hover).
 
 `.op-table` + `.op-tr`; `.op-td--num` alinea a la derecha con cifras tabulares,
-`.op-td--tight` achica el padding.
+`.op-td--tight` achica el padding. Una `.op-tr` que se abre con Enter lleva
+`tabindex="0"`, y su anillo de foco es un outline hacia adentro, pintado
+encima de las celdas.
 
 `.op-kv` para pares clave/valor (`__k` / `__v`). `.op-stat` para una cifra
 grande (`__value` / `__unit` / `__label`).
@@ -436,7 +456,8 @@ el `0.149` del lightness como si fuera el canal verde: arma `#009500` y la app
 arranca con medio segundo de pantalla **verde**. Es un hex válido, así que
 ninguna validación de forma lo agarra. `colorToken()` pinta el color en un
 canvas de 1×1 y lee el píxel, que funciona con cualquier notación presente y
-futura.
+futura. El caso completo está en
+`C:\tools\electron-dev-docs\METODO-Flash-Verde-Arranque-Electron-Win11.md`.
 
 Y de `format.js`: `fmtDur` · `fmtNum` · `fmtBytes` · `fmtMoney` · `fmtClock` ·
 `fmtDate` · `relTime` · `monogram` · `plural` · `ellipsize`.

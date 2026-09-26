@@ -98,9 +98,9 @@ export function designHTML() {
         </div>`)}
 
       ${section('Superficies', 'Una sola superficie opaca en todo el sistema: el fondo. Lo demás son HOJAS —rellenos de luz con alfa— y POZOS —alfas de negro—, así el mismo componente funciona sobre la niebla, sobre una card o sobre un modal. La jerarquía se construye por elevación, nunca con bordes marcados: cuanto más alto flota algo, más luz junta.', `
-        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px">
           ${swatch('Hundido', '--op-sunken')}${swatch('Base', '--op-bg')}${swatch('Rail', '--op-s1')}
-          ${swatch('Panel', '--op-s2')}${swatch('Flotante', '--op-s3')}
+          ${swatch('Panel', '--op-s2')}${swatch('Flotante', '--op-s3')}${swatch('Máximo', '--op-s4')}
         </div>
 
         <!-- El vidrio en vivo: contenido con color atrás, una hoja adelante.
@@ -279,6 +279,10 @@ export function designHTML() {
               <button class="op-tab is-active" data-value="1">Resumen</button>
               <button class="op-tab" data-value="2">Detalle <span class="op-tab__count">12</span></button>
               <button class="op-tab" data-value="3">Historial</button>
+            </div>
+            <div class="op-row" style="gap:6px">
+              <span class="op-kbd">Ctrl</span><span class="op-kbd">S</span>
+              <span class="op-meta">una tecla, dibujada</span>
             </div>
           </div>
         </div>`)}
