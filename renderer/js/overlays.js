@@ -117,6 +117,16 @@ const Tooltip = (() => {
 const Toast = (() => {
   let host = null;
 
+  /* UNO A LA VEZ: los avisos no se apilan. Uno que llega con otro a la vista:
+     · si dice lo MISMO (título, texto y tono), no se dispara: el que está
+       vuelve a empezar su cuenta y su barra. Pasaba en Nexus al tocar dos
+       veces «Buscar ahora»: dos «Estás al día» encimados;
+     · si dice otra cosa, lo RELEVA: el viejo sale y el nuevo entra en su lugar
+       cuando el viejo ya va por la mitad de su salida (no se descarta: podría
+       ser un error que hay que ver). */
+  let actual = null;   // { el, clave, close, renovar }
+  const RELEVO = 120;  // ms: el nuevo espera a que el viejo vaya por la mitad
+
   function ensure() {
     if (host && host.isConnected) return host;
     host = document.createElement('div');
@@ -134,8 +144,20 @@ const Toast = (() => {
    * siempre quiere `duration: 0`: una decisión que se va sola a los cuatro
    * segundos no es una decisión. El toast se cierra después de ejecutar la
    * acción, así que `onSelect` no tiene que acordarse de cerrarlo.
+   * Devuelve { close }. Con uno igual a la vista, devuelve el de ese.
    */
   function show({ title, text = '', tone = 'default', duration = 4200, icon, actions = [] } = {}) {
+    const clave = `${tone}
+${title}
+${text}
+${actions.map((a) => a.label).join('|')}`;
+    let relevo = false;
+    if (actual && !actual.el.__cerrando) {
+      if (actual.clave === clave) { actual.renovar(); return { close: actual.close }; }
+      actual.close();
+      relevo = true;
+    }
+
     const el = document.createElement('div');
     el.className = `op-toast${tone === 'error' ? ' op-toast--error' : ''}`;
     el.style.setProperty('--life', `${duration}ms`);
@@ -149,38 +171,80 @@ const Toast = (() => {
         ${actions.length ? `<div class="op-toast__actions">${actions.map((a, i) => `
           <button class="op-btn op-btn--sm op-flashable op-btn--${a.variant || 'ghost'}" data-act="${i}"></button>`).join('')}</div>` : ''}
       </div>
-      <button class="op-iconbtn op-iconbtn--sm" data-close>${Icons.svg('close')}</button>
+      <button class="op-iconbtn op-iconbtn--sm" data-close aria-label="Cerrar">${Icons.svg('close')}</button>
       ${duration ? '<span class="op-toast__life"></span>' : ''}`;
 
     // textContent, no innerHTML: el contenido puede venir de un error real.
     el.querySelector('.op-toast__title').textContent = title;
     if (text) el.querySelector('.op-toast__text').textContent = text;
 
-    ensure().appendChild(el);
-
-    const close = () => exit(el, { fallback: 260 });
+    let timer = 0;
+    /* Sale deslizándose y después se pliega: lo de alrededor acompaña en vez
+       de saltar cuando el que se fue sale del DOM. */
+    const close = () => {
+      if (el.__cerrando) return;
+      el.__cerrando = true;
+      clearTimeout(timer);
+      if (actual?.el === el) actual = null;
+      if (!el.isConnected) return;          // lo cerraron antes de entrar (relevo)
+      exit(el, { fallback: 260 });
+    };
     el.querySelector('[data-close]').addEventListener('click', close);
-
     actions.forEach((a, i) => {
       const btn = el.querySelector(`[data-act="${i}"]`);
       btn.textContent = a.label;
       btn.addEventListener('click', () => { close(); a.onSelect?.(); });
     });
 
+    /* Hover pausa la cuenta: si te acercás a leerlo, no se te escapa. Lo que
+       queda se lleva a mano, descontando lo que corrió. Antes se leía de la
+       escala de la barra y la cuenta estaba al revés: tocado apenas aparecía,
+       se cerraba enseguida con la barra casi llena; tocado al final, se
+       quedaba casi toda la duración con la barra ya vacía. */
+    let left = duration;
+    let since = 0;
+    let encima = false;
+    const life = el.querySelector('.op-toast__life');
+    const correr = (ms) => { since = performance.now(); timer = setTimeout(close, ms); };
     if (duration) {
-      let timer = setTimeout(close, duration);
-      const life = el.querySelector('.op-toast__life');
-      // Hover pausa la cuenta: si te acercás a leerlo, no se te escapa.
       el.addEventListener('pointerenter', () => {
+        encima = true;
         clearTimeout(timer);
+        left -= performance.now() - since;
         if (life) life.style.animationPlayState = 'paused';
       });
       el.addEventListener('pointerleave', () => {
+        encima = false;
         if (life) life.style.animationPlayState = 'running';
-        const left = life ? duration * (1 - (parseFloat(getComputedStyle(life).transform.split(',')[0].replace('matrix(', '')) || 0)) : 1200;
-        timer = setTimeout(close, Math.max(900, left));
+        // Un respiro mínimo para soltarlo, aunque ya casi no le quedara.
+        correr(Math.max(900, left));
       });
     }
+
+    /* El mismo aviso otra vez: la cuenta vuelve a empezar y la barra se
+       rellena (eso es lo que se ve: el pedido llegó). */
+    const renovar = () => {
+      if (!duration) return;
+      clearTimeout(timer);
+      left = duration;
+      if (life) {
+        life.style.animation = 'none';
+        void life.offsetWidth;
+        life.style.animation = '';
+        if (encima) life.style.animationPlayState = 'paused';
+      }
+      if (!encima) correr(left);
+    };
+
+    actual = { el, clave, close, renovar };
+    const montar = () => {
+      if (el.__cerrando) return;
+      ensure().appendChild(el);
+      if (duration) correr(left);
+    };
+    if (relevo) setTimeout(montar, RELEVO);
+    else montar();
+
     return { close };
   }
 
