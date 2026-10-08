@@ -220,6 +220,22 @@
   --op-e3: 0 4px 12px rgb(0 0 0 / .38), 0 20px 48px rgb(0 0 0 / .46);
   --op-e4: 0 8px 24px rgb(0 0 0 / .44), 0 32px 80px rgb(0 0 0 / .58);
 
+  /* ── Lo que flota sobre el contenido: menús y toasts ─────────────────────
+     LA REGLA: lo que flota tiene que quedar del MISMO TONO que las tarjetas
+     que tapa, y eso se MIDE (el color de píxel de los dos en una captura),
+     no se ajusta a ojo. Con solo luz (--op-s3) y blur, sobre una tarjeta
+     quedaban como un vidrio lavado: el doble de claros (tarjeta 25, menú 50,
+     toast 34) y con lo de atrás leyéndose a través. Por eso llevan la luz de
+     una tarjeta (--op-s2) sobre una BASE OSCURA: --op-flota-base dice cuánto
+     tapa. El blur sigue dejando pasar algo del color de abajo.
+     El valor depende de la niebla y de dónde viven las tarjetas: si una app
+     mueve --op-fog o pone la vista en una hoja, vuelve a medir (Nexus, con
+     niebla 2,4 y la vista en una hoja, quedó en 60 %). */
+  --op-flota-base: 90%;
+  --op-flota:
+    linear-gradient(var(--op-s2), var(--op-s2)),
+    color-mix(in srgb, var(--op-bg) var(--op-flota-base), transparent);
+
   /* ── Movimiento ────────────────────────────────────────────────────────────
      Opal se mueve con seguridad: sale rápido, frena largo. Nada rebota. */
   --op-ease:      cubic-bezier(.16, 1, .3, 1);     /* expo-out: el default */

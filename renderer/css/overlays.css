@@ -76,14 +76,20 @@
   max-height: 60vh;
   padding: var(--op-1);
   border-radius: var(--op-r-lg);
-  background: var(--op-s3);
+  background: var(--op-flota);   /* del tono de las tarjetas: ver tokens.css */
   backdrop-filter: var(--op-glass-heavy);
   box-shadow: var(--op-sheet), var(--op-e4);
   overflow-y: auto;
-  animation: op-pop-in var(--op-t-2) var(--op-ease) both;
+  /* Entra y sale SOLO por opacidad, sin el pop (escala y desplazamiento).
+     Moviéndose, Chromium deja ver el desenfoque de atrás en el canto de
+     arriba: sobre algo claro, una línea clara. Con el vidrio lavado de antes
+     no se notaba porque el cuerpo era igual de claro; con la base oscura de
+     --op-flota sí (medido sobre blanco: canto 164 contra 75 quieto, aun con
+     la base opaca). Quieto en su lugar, el canto es el de siempre. */
+  animation: op-fade-in var(--op-t-2) var(--op-ease) both;
   transform-origin: var(--origin, top left);
 }
-.op-menu[data-state='closing'] { animation: op-pop-out 110ms var(--op-ease-in) both; }
+.op-menu[data-state='closing'] { animation: op-fade-out 110ms var(--op-ease-in) both; }
 .op-menuitem {
   display: flex;
   align-items: center;
@@ -211,7 +217,7 @@
   gap: var(--op-3);
   padding: var(--op-3);
   border-radius: var(--op-r-lg);
-  background: var(--op-s3);
+  background: var(--op-flota);   /* del tono de las tarjetas: ver tokens.css */
   backdrop-filter: var(--op-glass);
   box-shadow: var(--op-sheet), var(--op-e4);
   animation: op-slide-in-r var(--op-t-3) var(--op-ease) both;
