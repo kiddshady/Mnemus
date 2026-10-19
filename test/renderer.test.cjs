@@ -1356,6 +1356,30 @@ app.whenReady().then(async () => {
   }
   await js(`document.getElementById('aud-notr')?.remove()`);
 
+  /* La descarga de una actualización: el porcentaje corre (roll) sin saltar
+     ni destellar, y el botón no se reescribe en cada aviso (si no, el
+     spinner vuelve a arrancar). Va al final porque deja la fila en
+     «Bajando…» y no hay cómo volverla atrás sin una versión de verdad. */
+  console.log('\nActualización: el porcentaje de la descarga');
+  await click('[data-view="ajustes"]');
+  await sleep(600);
+  const prog = (p) => win.webContents.send('update:progress', { version: '9.9.9', porcentaje: p });
+  prog(0);
+  await sleep(400);
+  await js(`window.__upd = { muestras: [], destello: false, btn: document.querySelector('#upd-btn svg') };
+    window.__updT = setInterval(() => { const e = document.getElementById('upd-estado');
+      if (e.querySelector('.op-ticked') || e.classList.contains('op-ticked')) window.__upd.destello = true;
+      const m = e.textContent.match(/(\\d+) %$/); if (m) window.__upd.muestras.push(+m[1]); }, 16);`);
+  for (const p of [10, 40, 41, 70, 100]) { prog(p); await sleep(250); }
+  await sleep(500);
+  const upd = await js(`(() => { clearInterval(window.__updT); const r = window.__upd;
+    return { muestras: [...new Set(r.muestras)], destello: r.destello,
+      mismoBoton: r.btn === document.querySelector('#upd-btn svg'), dice: document.getElementById('upd-estado').textContent }; })()`);
+  ok('el porcentaje corre de a poco, sin saltar', upd.muestras.some((v) => v > 10 && v < 40) && upd.muestras.some((v) => v > 41 && v < 70), JSON.stringify(upd.muestras));
+  ok('y nunca vuelve atrás', upd.muestras.every((v, i, a) => i === 0 || v >= a[i - 1]), JSON.stringify(upd.muestras));
+  ok('llega al último sin destellar', upd.dice === 'Bajando la 9.9.9… 100 %' && !upd.destello, JSON.stringify(upd));
+  ok('el botón no se reescribe en cada aviso (el spinner no se reinicia)', upd.mismoBoton, JSON.stringify(upd));
+
   // El test no puede dejar basura en los datos: se lleva TODOS los mazos que
   // creó (el suyo y el que importó), sus fichas y el ajuste que tocó. La
   // semilla queda — es de la app, no del test.

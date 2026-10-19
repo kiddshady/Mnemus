@@ -18,7 +18,7 @@
 import { Icons } from './icons.js';
 import { Tooltip, Toast, Menu, Modal } from './overlays.js';
 import Router from './router.js';
-import { initClickFlash, initScrollFades, scrollFade, raf2, countTo, exit, bindStepper, bindSwitcher } from './motion.js';
+import { initClickFlash, initScrollFades, scrollFade, raf2, countTo, roll, exit, bindStepper, bindSwitcher } from './motion.js';
 import { viewEl, esc, paint, head, empty, mark, status, setStateLabels, attempt, copy, colorToken } from './ui.js';
 import { relTime, plural } from './format.js';
 import { designHTML, wireDesign } from './design-view.js';
@@ -2755,6 +2755,11 @@ const TEXTO_UPD = {
   error: (u) => [`No se pudo buscar: ${u.mensaje || 'sin respuesta'}. Revisá la conexión y probá de nuevo.`, 'Reintentar'],
 };
 
+/* Bajando, el porcentaje va en su propio <span> para que pueda correr. */
+const htmlUpd = (clave, texto) => (clave === 'bajando'
+  ? `Bajando la ${esc(upd?.version || '')}… <span class="op-num mn-update__pct">${upd?.porcentaje || 0} %</span>`
+  : esc(texto));
+
 function pintarUpdate({ animar = true } = {}) {
   const estado = document.getElementById('upd-estado');
   const btn = document.getElementById('upd-btn');
@@ -2766,18 +2771,35 @@ function pintarUpdate({ animar = true } = {}) {
   btn.classList.toggle('op-btn--primary', clave === 'listo');
   btn.classList.toggle('op-btn--secondary', clave !== 'listo');
   const icono = clave === 'listo' ? 'download' : 'retry';
-  btn.innerHTML = `${Icons.svg(icono, ocupado ? 'op-spinning' : '')} ${esc(etiqueta)}`;
+  // Solo si cambió: el avance llega varias veces por segundo, y reescribirlo
+  // en cada aviso volvía a arrancar el spinner desde cero (daba saltitos).
+  const rotulo = `${Icons.svg(icono, ocupado ? 'op-spinning' : '')} ${esc(etiqueta)}`;
+  if (btn.__rotulo !== rotulo) { btn.innerHTML = rotulo; btn.__rotulo = rotulo; }
 
+  /* El avance de la descarga cambia varias veces por segundo: mientras baja
+     la misma versión solo corre el porcentaje (roll, sin destello), en vez de
+     saltar de un número al otro. Los cambios de estado se funden, no saltan. */
+  const version = String(upd?.version || '');
+  if (clave === 'bajando' && estado.dataset.clave === 'bajando' && estado.dataset.version === version) {
+    const n = estado.querySelector('.mn-update__pct');
+    if (n) roll(n, upd.porcentaje || 0, (v) => { n.textContent = `${Math.round(v)} %`; }, { from: parseFloat(n.textContent) });
+    return;
+  }
   if (estado.textContent === texto) return;
-  // El avance de la descarga cambia varias veces por segundo: ese se escribe
-  // directo. Los cambios de estado se funden, no saltan.
-  if (!animar || (clave === 'bajando' && estado.dataset.clave === 'bajando')) {
-    estado.textContent = texto;
+  if (!animar) {
+    estado.innerHTML = htmlUpd(clave, texto);
   } else {
     estado.classList.add('is-cambiando');
-    setTimeout(() => { estado.textContent = texto; estado.classList.remove('is-cambiando'); }, 140);
+    // Lo que se escribe es lo último que llegó: durante el fundido el
+    // porcentaje pudo avanzar.
+    setTimeout(() => {
+      const c = upd?.estado in TEXTO_UPD ? upd.estado : 'inicio';
+      estado.innerHTML = htmlUpd(c, TEXTO_UPD[c](upd || {})[0]);
+      estado.classList.remove('is-cambiando');
+    }, 140);
   }
   estado.dataset.clave = clave;
+  estado.dataset.version = version;
 }
 
 async function buscarUpdate() {
